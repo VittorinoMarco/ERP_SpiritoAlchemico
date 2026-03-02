@@ -1,0 +1,20 @@
+@import 'tailwindcss';
+
+@layer base {
+  html,
+  body {
+    @apply min-h-full;
+  }
+
+  body {
+    @apply bg-gradient-to-br from-[#E8E4DE] via-[#FFF8E7] to-[#F5F0E8] text-[#1A1A1A] font-sans antialiased;
+  }
+}
+
+@layer components {
+  .page-grid {
+    @apply grid gap-4 lg:gap-6;
+    @apply md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4;
+  }
+}
+
