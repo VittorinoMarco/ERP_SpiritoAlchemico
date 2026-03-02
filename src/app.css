@@ -3,18 +3,41 @@
 @layer base {
   html,
   body {
-    @apply min-h-full;
+    min-height: 100%;
   }
 
   body {
-    @apply bg-gradient-to-br from-[#E8E4DE] via-[#FFF8E7] to-[#F5F0E8] text-[#1A1A1A] font-sans antialiased;
+    background-image: linear-gradient(to bottom right, #E8E4DE, #FFF8E7, #F5F0E8);
+    color: #1A1A1A;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
 @layer components {
   .page-grid {
-    @apply grid gap-4 lg:gap-6;
-    @apply md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4;
+    display: grid;
+    gap: 1rem;
+  }
+
+  @media (min-width: 768px) {
+    .page-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .page-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .page-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
   }
 }
 
