@@ -13,6 +13,7 @@
   "type": "module",
   "devDependencies": {
     "@sveltejs/adapter-auto": "^3.2.0",
+    "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.7.0",
     "@sveltejs/vite-plugin-svelte": "^4.0.0",
     "svelte": "^5.0.0",
@@ -28,5 +29,6 @@
   },
   "optionalDependencies": {
     "@rollup/rollup-darwin-arm64": "^4.28.1"
-  }
+  },
+  "packageManager": "pnpm@10.15.1+sha512.34e538c329b5553014ca8e8f4535997f96180a1d0f614339357449935350d924e22f8614682191264ec33d1462ac21561aff97f6bb18065351c162c7e8f6de67"
 }
