@@ -25,5 +25,8 @@
     "chart.js": "^4.4.0",
     "lucide-svelte": "^0.468.0",
     "pocketbase": "^0.21.0"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-darwin-arm64": "^4.28.1"
   }
 }
