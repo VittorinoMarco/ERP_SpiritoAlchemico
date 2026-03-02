@@ -1,14 +1,11 @@
 name: Deploy ERP SvelteKit
-
 on:
   push:
     branches:
       - main
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -18,10 +15,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
+      - name: Install pnpm
+        run: npm install -g pnpm
 
       - name: Install dependencies
         run: pnpm install
@@ -31,7 +26,7 @@ jobs:
           PUBLIC_POCKETBASE_URL: ${{ secrets.VITE_PB_URL }}
         run: pnpm build
 
-      - name: Copy build artifacts to server
+      - name: Copy build to server
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -41,12 +36,10 @@ jobs:
           target: "/var/www/erp/"
           strip_components: 1
 
-      - name: Reload Nginx on server
+      - name: Reload Nginx
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
-          script: |
-            sudo systemctl reload nginx
-
+          script: systemctl reload nginx
