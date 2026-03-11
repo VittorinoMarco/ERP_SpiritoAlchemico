@@ -2,7 +2,7 @@ import PocketBase from 'pocketbase';
 import { env } from '$env/dynamic/public';
 
 const getPbUrl = () =>
-  env.PUBLIC_POCKETBASE_URL ?? 'https://spiritoalchemico.marcovittorino.com';
+  env.PUBLIC_POCKETBASE_URL || 'https://spiritoalchemico.marcovittorino.com';
 
 export const createPbClient = () => new PocketBase(getPbUrl());
 

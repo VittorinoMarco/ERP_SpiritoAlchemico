@@ -23,9 +23,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build SvelteKit app
+      - name: Set PocketBase URL
         env:
-          PUBLIC_POCKETBASE_URL: ${{ secrets.VITE_PB_URL }}
+          PB_URL: ${{ secrets.VITE_PB_URL }}
+        run: |
+          echo "PUBLIC_POCKETBASE_URL=${PB_URL:-https://spiritoalchemico.marcovittorino.com}" >> $GITHUB_ENV
+
+      - name: Build SvelteKit app
         run: pnpm build
 
       - name: Copy build to server

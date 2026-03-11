@@ -143,7 +143,7 @@ function createNotificationsStore() {
 export const notificationsStore = createNotificationsStore();
 
 export const unreadCount = derived(
-  [notificationsStore.subscribe, notificationsStore.readIds.subscribe],
+  [notificationsStore, notificationsStore.readIds],
   ([notifs, read]) => {
     const items = notifs as Notification[];
     const readSet = read as Set<string>;
