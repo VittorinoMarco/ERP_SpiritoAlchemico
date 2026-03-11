@@ -1,0 +1,58 @@
+# Esempio configurazione Nginx per ERP Spirito Alchemico
+# Copia in /etc/nginx/sites-available/ e adatta il dominio
+#
+# IMPORTANTE: Il deploy copia il contenuto di build/ in /var/www/erp/
+# Quindi la root deve essere /var/www/erp/ (NON /var/www/erp/build)
+#
+# Per SPA (adapter-static) serve try_files con fallback a index.html
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name spiritoalchemico.marcovittorino.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name spiritoalchemico.marcovittorino.com;
+
+    ssl_certificate /etc/letsencrypt/live/spiritoalchemico.marcovittorino.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/spiritoalchemico.marcovittorino.com/privkey.pem;
+
+    # Root: contenuto di build/ (index.html, _app/, favicon.png)
+    root /var/www/erp;
+
+    # SPA fallback: tutte le route non trovate → index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # PocketBase API
+    location /api/ {
+        proxy_pass http://127.0.0.1:8090/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # PocketBase Admin
+    location /_/ {
+        proxy_pass http://127.0.0.1:8090/_/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Cache per asset statici
+    location /_app/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+}

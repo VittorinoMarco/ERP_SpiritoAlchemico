@@ -1,0 +1,461 @@
+<script lang="ts">
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
+  import { onMount } from 'svelte';
+  import { pb } from '$lib/pocketbase';
+  import Card from '$lib/components/ui/Card.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
+  import Modal from '$lib/components/ui/Modal.svelte';
+  import BarChart from '$lib/components/charts/BarChart.svelte';
+  import {
+    ArrowLeft,
+    Users,
+    ShoppingCart,
+    Euro,
+    Percent,
+    Settings,
+    CheckCircle,
+    ChevronRight
+  } from 'lucide-svelte';
+  import type { AgentCommission, CommissionStato } from '$lib/types/agent';
+  import { COMMISSION_STATO_LABELS, COMMISSION_STATO_BADGE } from '$lib/types/agent';
+
+  const agentId = $page.params.id;
+
+  type TabId = 'overview' | 'provvigioni';
+
+  let agent: {
+    id: string;
+    nome?: string;
+    cognome?: string;
+    email?: string;
+    provvigione_percentuale?: number;
+  } | null = null;
+  let clients: { id: string; ragione_sociale?: string }[] = [];
+  let orders: { id: string; numero_ordine?: string; data_ordine?: string; totale?: number; stato?: string }[] = [];
+  let commissions: (AgentCommission & { expand?: { ordine?: { numero_ordine?: string } } })[] = [];
+  let loading = true;
+  let activeTab: TabId = 'overview';
+  let configModalOpen = false;
+  let provvigionePercentuale = '';
+  let savingConfig = false;
+  let liquidateModalOpen = false;
+  let liquidateDate = '';
+  let liquidating = false;
+
+  const today = new Date().toISOString().split('T')[0];
+
+  function agentName(): string {
+    if (!agent) return '—';
+    if (agent.nome) return [agent.nome, agent.cognome].filter(Boolean).join(' ');
+    return agent.email ?? '—';
+  }
+
+  function formatDate(s: string | null | undefined): string {
+    if (!s) return '—';
+    try {
+      return new Date(s).toLocaleDateString('it-IT', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    } catch {
+      return '—';
+    }
+  }
+
+  function formatEuro(n: number): string {
+    return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(n);
+  }
+
+  $: maturate = commissions.filter((c) => c.stato === 'maturata');
+  $: liquidate = commissions.filter((c) => c.stato === 'liquidata');
+  $: totaleMaturate = maturate.reduce((s, c) => s + (c.importo ?? 0), 0);
+  $: totaleLiquidate = liquidate.reduce((s, c) => s + (c.importo ?? 0), 0);
+
+  $: performanceMensile = (() => {
+    const byMonth: Record<string, number> = {};
+    for (const o of orders) {
+      if (o.stato !== 'consegnato') continue;
+      const d = o.data_ordine ?? '';
+      if (!d) continue;
+      const key = d.slice(0, 7);
+      byMonth[key] = (byMonth[key] ?? 0) + (Number(o.totale) || 0);
+    }
+    const keys = Object.keys(byMonth).sort();
+    const last6 = keys.slice(-6);
+    return {
+      labels: last6.map((k) => {
+        const [y, m] = k.split('-');
+        return new Date(parseInt(y, 10), parseInt(m, 10) - 1).toLocaleDateString('it-IT', {
+          month: 'short',
+          year: '2-digit'
+        });
+      }),
+      values: last6.map((k) => byMonth[k] ?? 0)
+    };
+  })();
+
+  $: perfChartConfig = {
+    data: {
+      labels: performanceMensile.labels,
+      datasets: [
+        {
+          label: 'Fatturato',
+          data: performanceMensile.values,
+          backgroundColor: '#F5D547',
+          borderRadius: 6
+        }
+      ]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { grid: { color: '#E5E7EB' }, beginAtZero: true }
+      }
+    }
+  };
+
+  onMount(async () => {
+    try {
+      agent = await pb.collection('users').getOne(agentId) as typeof agent;
+      provvigionePercentuale = String(agent?.provvigione_percentuale ?? 0);
+
+      const [clientsList, ordersList, commList] = await Promise.all([
+        pb.collection('clients').getFullList({ filter: `agente = "${agentId}"` }),
+        pb.collection('orders').getFullList({
+          filter: `agente = "${agentId}"`,
+          sort: '-data_ordine'
+        }),
+        pb.collection('agent_commissions').getFullList({
+          filter: `agente = "${agentId}"`,
+          expand: 'ordine',
+          sort: '-data_maturata'
+        })
+      ]);
+      clients = clientsList;
+      orders = ordersList;
+      commissions = commList;
+    } catch {
+      agent = null;
+      clients = [];
+      orders = [];
+      commissions = [];
+    } finally {
+      loading = false;
+    }
+  });
+
+  async function saveConfig() {
+    if (!agent || savingConfig) return;
+    const pct = parseFloat(provvigionePercentuale);
+    if (isNaN(pct) || pct < 0 || pct > 100) return;
+    savingConfig = true;
+    try {
+      await pb.collection('users').update(agentId, { provvigione_percentuale: pct });
+      agent = await pb.collection('users').getOne(agentId) as typeof agent;
+      configModalOpen = false;
+    } catch (e) {
+      console.error(e);
+    } finally {
+      savingConfig = false;
+    }
+  }
+
+  async function liquidaProvvigioni() {
+    if (!liquidateDate || liquidating) return;
+    liquidating = true;
+    try {
+      for (const c of maturate) {
+        await pb.collection('agent_commissions').update(c.id, {
+          stato: 'liquidata',
+          data_liquidazione: liquidateDate
+        });
+      }
+      commissions = await pb.collection('agent_commissions').getFullList({
+        filter: `agente = "${agentId}"`,
+        expand: 'ordine',
+        sort: '-data_maturata'
+      });
+      liquidateModalOpen = false;
+      liquidateDate = '';
+    } catch (e) {
+      console.error(e);
+    } finally {
+      liquidating = false;
+    }
+  }
+</script>
+
+<svelte:head>
+  <title>Agente {agentName()} | ERP Spirito Alchemico</title>
+</svelte:head>
+
+<div class="space-y-6">
+  <div class="flex items-center gap-4">
+    <button
+      type="button"
+      class="p-2 rounded-2xl text-[#6B7280] hover:bg-black/5 transition-colors"
+      onclick={() => goto('/agenti')}
+      aria-label="Indietro"
+    >
+      <ArrowLeft class="h-5 w-5" />
+    </button>
+    <div class="flex-1">
+      <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">{agentName()}</h1>
+      <p class="text-sm text-[#6B7280] mt-0.5">{agent?.email ?? '—'}</p>
+    </div>
+    <Button
+      variant="ghost"
+      size="sm"
+      className="rounded-2xl"
+      onclick={() => {
+        provvigionePercentuale = String(agent?.provvigione_percentuale ?? 0);
+        configModalOpen = true;
+      }}
+    >
+      <Settings class="h-4 w-4" />
+      Config. Provvigione
+    </Button>
+  </div>
+
+  {#if loading}
+    <Card>
+      <div class="py-16 text-center">
+        <p class="text-sm text-[#6B7280]">Caricamento...</p>
+      </div>
+    </Card>
+  {:else if !agent}
+    <Card>
+      <div class="py-16 text-center">
+        <p class="text-sm text-[#6B7280]">Agente non trovato</p>
+        <Button variant="ghost" className="mt-4" onclick={() => goto('/agenti')}>
+          Torna agli agenti
+        </Button>
+      </div>
+    </Card>
+  {:else}
+    <div class="flex gap-2">
+      <button
+        type="button"
+        class="rounded-full px-5 py-2.5 text-sm font-medium transition-all {activeTab === 'overview'
+          ? 'bg-[#F5D547] text-[#1A1A1A]'
+          : 'bg-[#E5E7EB] text-[#6B7280] hover:bg-[#D1D5DB]'}"
+        onclick={() => (activeTab = 'overview')}
+      >
+        Panoramica
+      </button>
+      <button
+        type="button"
+        class="rounded-full px-5 py-2.5 text-sm font-medium transition-all {activeTab === 'provvigioni'
+          ? 'bg-[#F5D547] text-[#1A1A1A]'
+          : 'bg-[#E5E7EB] text-[#6B7280] hover:bg-[#D1D5DB]'}"
+        onclick={() => (activeTab = 'provvigioni')}
+      >
+        Provvigioni
+      </button>
+    </div>
+
+    {#if activeTab === 'overview'}
+      <div class="grid gap-6 lg:grid-cols-3">
+        <Card>
+          <h2 class="text-sm font-medium text-[#1A1A1A] mb-4">Clienti assegnati</h2>
+          <div class="space-y-2 max-h-64 overflow-y-auto">
+            {#each clients.slice(0, 20) as c}
+              <div
+                class="flex items-center justify-between py-2 border-b border-black/5 last:border-0 cursor-pointer hover:bg-[#FFFDE7] rounded-lg px-2 -mx-2"
+                onclick={() => goto(`/clienti/${c.id}`)}
+                role="button"
+                tabindex="0"
+                onkeydown={(e) => e.key === 'Enter' && goto(`/clienti/${c.id}`)}
+              >
+                <span class="text-sm font-medium text-[#1A1A1A]">{c.ragione_sociale ?? '—'}</span>
+                <ChevronRight class="h-4 w-4 text-[#9CA3AF]" />
+              </div>
+            {/each}
+          </div>
+          {#if clients.length > 20}
+            <p class="text-xs text-[#6B7280] mt-2">+{clients.length - 20} altri</p>
+          {/if}
+          {#if clients.length === 0}
+            <p class="py-8 text-center text-sm text-[#6B7280]">Nessun cliente assegnato</p>
+          {/if}
+        </Card>
+
+        <Card>
+          <h2 class="text-sm font-medium text-[#1A1A1A] mb-4">Ordini recenti</h2>
+          <div class="space-y-2 max-h-64 overflow-y-auto">
+            {#each orders.slice(0, 10) as o}
+              <div
+                class="flex items-center justify-between py-2 border-b border-black/5 last:border-0 cursor-pointer hover:bg-[#FFFDE7] rounded-lg px-2 -mx-2"
+                onclick={() => goto(`/ordini/${o.id}`)}
+                role="button"
+                tabindex="0"
+                onkeydown={(e) => e.key === 'Enter' && goto(`/ordini/${o.id}`)}
+              >
+                <div>
+                  <span class="text-sm font-medium text-[#1A1A1A]">{o.numero_ordine ?? '—'}</span>
+                  <span class="text-xs text-[#6B7280] ml-2">{formatDate(o.data_ordine)}</span>
+                </div>
+                <span class="text-sm font-bold text-[#1A1A1A]">{formatEuro(o.totale ?? 0)}</span>
+              </div>
+            {/each}
+          </div>
+          {#if orders.length === 0}
+            <p class="py-8 text-center text-sm text-[#6B7280]">Nessun ordine</p>
+          {/if}
+        </Card>
+
+        <Card className="lg:col-span-1">
+          <h2 class="text-sm font-medium text-[#1A1A1A] mb-4">Performance mensile</h2>
+          <div class="h-48">
+            <BarChart config={perfChartConfig} />
+          </div>
+        </Card>
+      </div>
+    {/if}
+
+    {#if activeTab === 'provvigioni'}
+      <Card>
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-4">
+          <div class="flex flex-wrap gap-4">
+            <div>
+              <p class="text-xs text-[#6B7280]">Maturate</p>
+              <p class="text-xl font-bold text-[#F5D547]">{formatEuro(totaleMaturate)}</p>
+            </div>
+            <div>
+              <p class="text-xs text-[#6B7280]">Liquidate</p>
+              <p class="text-xl font-bold text-green-600">{formatEuro(totaleLiquidate)}</p>
+            </div>
+          </div>
+          {#if maturate.length > 0}
+            <Button
+              variant="primary"
+              size="sm"
+              className="rounded-2xl !bg-[#1A1A1A]"
+              onclick={() => {
+                liquidateDate = today;
+                liquidateModalOpen = true;
+              }}
+            >
+              <CheckCircle class="h-4 w-4" />
+              Liquida provvigioni
+            </Button>
+          {/if}
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-black/5">
+                <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280]">Ordine</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280]">Totale ordine</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280]">%</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280]">Importo</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280]">Stato</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280]">Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each commissions as c}
+                <tr class="border-b border-black/5 last:border-0 hover:bg-[#FFFDE7]">
+                  <td class="px-4 py-3 font-medium text-[#1A1A1A]">
+                    {c.expand?.ordine?.numero_ordine ?? '—'}
+                  </td>
+                  <td class="px-4 py-3 text-right text-[#6B7280]">{formatEuro(c.totale_ordine ?? 0)}</td>
+                  <td class="px-4 py-3 text-right text-[#6B7280]">{c.percentuale ?? 0}%</td>
+                  <td class="px-4 py-3 text-right font-bold text-[#1A1A1A]">{formatEuro(c.importo ?? 0)}</td>
+                  <td class="px-4 py-3">
+                    <span
+                      class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium {COMMISSION_STATO_BADGE[
+                        c.stato as CommissionStato
+                      ] ?? 'bg-gray-100'}"
+                    >
+                      {COMMISSION_STATO_LABELS[c.stato as CommissionStato]}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 text-[#6B7280]">
+                    {c.stato === 'liquidata' && c.data_liquidazione
+                      ? formatDate(c.data_liquidazione)
+                      : formatDate(c.data_maturata)}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        {#if commissions.length === 0}
+          <p class="py-12 text-center text-sm text-[#6B7280]">Nessuna provvigione</p>
+        {/if}
+      </Card>
+    {/if}
+  {/if}
+</div>
+
+<!-- Modal Config Provvigione -->
+<Modal
+  open={configModalOpen}
+  title="Configurazione provvigione"
+  size="sm"
+  on:close={() => (configModalOpen = false)}
+>
+  <form onsubmit={(e) => { e.preventDefault(); saveConfig(); }} class="space-y-5">
+    <div>
+      <label for="pct" class="block text-sm font-medium text-[#1A1A1A] mb-2">
+        Percentuale provvigione (%)
+      </label>
+      <input
+        id="pct"
+        type="number"
+        min="0"
+        max="100"
+        step="0.5"
+        bind:value={provvigionePercentuale}
+        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+      />
+    </div>
+    <div class="flex justify-end gap-3">
+      <Button type="button" variant="ghost" onclick={() => (configModalOpen = false)}>
+        Annulla
+      </Button>
+      <Button type="submit" variant="primary" disabled={savingConfig}>
+        {savingConfig ? 'Salvataggio...' : 'Salva'}
+      </Button>
+    </div>
+  </form>
+</Modal>
+
+<!-- Modal Liquida Provvigioni -->
+<Modal
+  open={liquidateModalOpen}
+  title="Liquida provvigioni"
+  size="sm"
+  on:close={() => (liquidateModalOpen = false)}
+>
+  <form onsubmit={(e) => { e.preventDefault(); liquidaProvvigioni(); }} class="space-y-5">
+    <p class="text-sm text-[#6B7280]">
+      Segna come liquidate {maturate.length} provvigioni per un totale di {formatEuro(totaleMaturate)}.
+    </p>
+    <div>
+      <label for="liq_date" class="block text-sm font-medium text-[#1A1A1A] mb-2">
+        Data liquidazione
+      </label>
+      <input
+        id="liq_date"
+        type="date"
+        bind:value={liquidateDate}
+        required
+        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+      />
+    </div>
+    <div class="flex justify-end gap-3">
+      <Button type="button" variant="ghost" onclick={() => (liquidateModalOpen = false)}>
+        Annulla
+      </Button>
+      <Button type="submit" variant="primary" disabled={liquidating || !liquidateDate}>
+        {liquidating ? 'Elaborazione...' : 'Conferma'}
+      </Button>
+    </div>
+  </form>
+</Modal>

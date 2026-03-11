@@ -1,15 +1,37 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import Card from '$lib/components/ui/Card.svelte';
   import Input from '$lib/components/ui/Input.svelte';
   import Button from '$lib/components/ui/Button.svelte';
-  import type { ActionData } from './$types';
+  import { pb } from '$lib/pocketbase';
 
-  export let form: ActionData | null = null;
-
-  let email = form?.values?.email ?? '';
-  let nome = form?.values?.nome ?? '';
-  let ruolo = form?.values?.ruolo ?? 'agente';
+  let email = '';
+  let nome = '';
+  let ruolo = 'agente';
   let password = '';
+  let error = '';
+  let loading = false;
+
+  async function handleSubmit(e: Event) {
+    e.preventDefault();
+    error = '';
+    loading = true;
+
+    try {
+      await pb.collection('users').create({
+        email,
+        password,
+        passwordConfirm: password,
+        nome,
+        ruolo
+      });
+      goto('/');
+    } catch {
+      error = "Errore nella creazione dell'utente.";
+    } finally {
+      loading = false;
+    }
+  }
 </script>
 
 <div class="min-h-[calc(100vh-5rem)] flex items-center justify-center px-4">
@@ -19,11 +41,11 @@
         Invita utente
       </h1>
       <p class="mt-2 text-sm text-[#6B7280]">
-        Crea un nuovo account per l’accesso all’ERP.
+        Crea un nuovo account per l'accesso all'ERP.
       </p>
     </div>
 
-    <form method="POST" class="space-y-4">
+    <form onsubmit={handleSubmit} class="space-y-4">
       <Input
         id="nome"
         label="Nome completo"
@@ -48,7 +70,6 @@
         </label>
         <select
           id="ruolo"
-          name="ruolo"
           class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm text-[#1A1A1A] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547] focus-visible:ring-offset-2 transition-all duration-200"
           bind:value={ruolo}
           required
@@ -68,16 +89,15 @@
         required
       />
 
-      {#if form?.error}
+      {#if error}
         <p class="text-xs text-rose-600 mt-1">
-          {form.error}
+          {error}
         </p>
       {/if}
 
-      <Button variant="primary" type="submit" className="w-full mt-4">
-        Crea utente
+      <Button variant="primary" type="submit" className="w-full mt-4" disabled={loading}>
+        {loading ? 'Creazione...' : 'Crea utente'}
       </Button>
     </form>
   </Card>
 </div>
-

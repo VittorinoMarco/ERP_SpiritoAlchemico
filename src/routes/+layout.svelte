@@ -1,8 +1,22 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import '../app.css';
   import Navbar from '$lib/components/layout/Navbar.svelte';
+  import { pb } from '$lib/pocketbase';
+  import { sottoScortaCount } from '$lib/stores/magazzino';
 
   export let data;
+
+  onMount(async () => {
+    if (data?.user) {
+      try {
+        const inv = await pb.collection('inventory').getFullList();
+        sottoScortaCount.set(inv.filter((i) => (i.giacenza ?? 0) < (i.giacenza_minima ?? 0)).length);
+      } catch {
+        sottoScortaCount.set(0);
+      }
+    }
+  });
 </script>
 
 <div class="min-h-screen flex flex-col">

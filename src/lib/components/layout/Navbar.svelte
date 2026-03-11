@@ -1,5 +1,32 @@
 <script lang="ts">
-  import { Bell, Settings } from 'lucide-svelte';
+  import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
+  import { onMount } from 'svelte';
+  import { Bell, Settings, AlertTriangle, Search } from 'lucide-svelte';
+  import { pb } from '$lib/pocketbase';
+  import { sottoScortaCount } from '$lib/stores/magazzino';
+  import { notificationsStore, unreadCount } from '$lib/stores/notifications';
+  import SearchModal from '$lib/components/search/SearchModal.svelte';
+  import NotificationPanel from '$lib/components/notifications/NotificationPanel.svelte';
+
+  let searchOpen = false;
+  let notificationsOpen = false;
+
+  onMount(async () => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchOpen = true;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    await notificationsStore.fetch();
+    const cleanup = notificationsStore.subscribeRealtime();
+    return () => {
+      window.removeEventListener('keydown', handler);
+      cleanup();
+    };
+  });
 
   type Role = 'admin' | 'agente' | 'magazziniere';
 
@@ -12,6 +39,7 @@
     | 'magazzino'
     | 'fatture'
     | 'analytics'
+    | 'attivita'
     | 'impostazioni';
 
   type NavItem = {
@@ -35,6 +63,7 @@
     { id: 'magazzino', label: 'Magazzino' },
     { id: 'fatture', label: 'Fatture' },
     { id: 'analytics', label: 'Analytics' },
+    { id: 'attivita', label: 'Attività' },
     { id: 'impostazioni', label: 'Impostazioni' }
   ];
 
@@ -45,12 +74,12 @@
 
     if (role === 'agente') {
       return allItems.filter((item) =>
-        ['dashboard', 'clienti', 'ordini'].includes(item.id)
+        ['dashboard', 'clienti', 'ordini', 'attivita'].includes(item.id)
       );
     }
 
     if (role === 'magazziniere') {
-      return allItems.filter((item) => ['dashboard', 'magazzino'].includes(item.id));
+      return allItems.filter((item) => ['dashboard', 'magazzino', 'attivita'].includes(item.id));
     }
 
     return allItems;
@@ -79,17 +108,53 @@
     return 'SA';
   };
 
-  let active: NavItemId = 'dashboard';
   let openMenu = false;
 
-  $: visibleItems = getVisibleItems(user?.role as Role | null);
+  $: visibleItems = getVisibleItems((user?.role || (user as any)?.ruolo) as Role | null);
+  $: path = $page.url.pathname;
+  $: active = path.startsWith('/prodotti')
+    ? 'prodotti'
+    : path.startsWith('/clienti')
+      ? 'clienti'
+      : path.startsWith('/ordini')
+        ? 'ordini'
+        : path.startsWith('/agenti')
+          ? 'agenti'
+          : path.startsWith('/magazzino')
+            ? 'magazzino'
+            : path.startsWith('/fatture')
+              ? 'fatture'
+              : path.startsWith('/analytics')
+                ? 'analytics'
+                : path.startsWith('/attivita')
+                  ? 'attivita'
+                  : path.startsWith('/impostazioni')
+                    ? 'impostazioni'
+                    : 'dashboard';
 
   const handleSelect = (id: NavItemId) => {
-    active = id;
+    const routes: Record<NavItemId, string> = {
+      dashboard: '/',
+      prodotti: '/prodotti',
+      clienti: '/clienti',
+      ordini: '/ordini',
+      agenti: '/agenti',
+      magazzino: '/magazzino',
+      fatture: '/fatture',
+      analytics: '/analytics',
+      attivita: '/attivita',
+      impostazioni: '/impostazioni'
+    };
+    goto(routes[id] ?? '/');
   };
 
   const toggleMenu = () => {
     openMenu = !openMenu;
+  };
+
+  const handleLogout = () => {
+    pb.authStore.clear();
+    goto('/login');
   };
 </script>
 
@@ -100,14 +165,23 @@
     {#each visibleItems as item}
       <button
         type="button"
-        class="whitespace-nowrap text-sm font-medium transition-all duration-200 px-5 py-2 rounded-full"
+        class="whitespace-nowrap text-sm font-medium transition-all duration-200 px-5 py-2 rounded-full inline-flex items-center gap-1.5"
         class:bg-[#1A1A1A]={active === item.id}
         class:text-white={active === item.id}
         class:text-[#6B7280]={active !== item.id}
         class:hover:text-[#1A1A1A]={active !== item.id}
-        on:click={() => handleSelect(item.id)}
+        onclick={() => handleSelect(item.id)}
       >
         {item.label}
+        {#if item.id === 'magazzino' && $sottoScortaCount > 0}
+          <span
+            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700"
+            title="Prodotti sotto scorta"
+          >
+            <AlertTriangle class="h-3 w-3" />
+            {$sottoScortaCount}
+          </span>
+        {/if}
       </button>
     {/each}
   </div>
@@ -116,14 +190,37 @@
     <button
       type="button"
       class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/80 text-[#6B7280] hover:text-[#1A1A1A] shadow-sm transition-all duration-200"
-      aria-label="Notifiche"
+      aria-label="Cerca (⌘K)"
+      onclick={() => (searchOpen = true)}
     >
-      <Bell class="h-4 w-4" />
+      <Search class="h-4 w-4" />
     </button>
+    <div class="relative">
+      <button
+        type="button"
+        class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/80 text-[#6B7280] hover:text-[#1A1A1A] shadow-sm transition-all duration-200"
+        aria-label="Notifiche"
+        onclick={() => (notificationsOpen = !notificationsOpen)}
+      >
+        <Bell class="h-4 w-4" />
+        {#if $unreadCount > 0}
+          <span
+            class="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white"
+          >
+            {$unreadCount > 99 ? '99+' : $unreadCount}
+          </span>
+        {/if}
+      </button>
+      <NotificationPanel
+        open={notificationsOpen}
+        onclose={() => (notificationsOpen = false)}
+      />
+    </div>
     <button
       type="button"
       class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/80 text-[#6B7280] hover:text-[#1A1A1A] shadow-sm transition-all duration-200"
       aria-label="Impostazioni"
+      onclick={() => goto('/impostazioni')}
     >
       <Settings class="h-4 w-4" />
     </button>
@@ -131,7 +228,7 @@
       <button
         type="button"
         class="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#F5D547] to-[#FFF8E7] border border-white shadow-sm pl-1 pr-2 py-1 text-xs font-semibold text-[#1A1A1A] transition-all duration-200"
-        on:click={toggleMenu}
+        onclick={toggleMenu}
         aria-label="Profilo utente"
       >
         <span
@@ -144,7 +241,7 @@
             {(user?.name as string | undefined) ?? ((user?.email as string | undefined) ?? 'Utente')}
           </span>
           <span class="text-[10px] text-[#6B7280]">
-            {roleLabel(user?.role as Role | null)}
+            {roleLabel((user?.role || (user as any)?.ruolo) as Role | null)}
           </span>
         </span>
       </button>
@@ -159,21 +256,22 @@
                 ((user?.email as string | undefined) ?? 'Utente')}
             </p>
             <p class="text-xs text-[#6B7280]">
-              {roleLabel(user?.role as Role | null)}
+              {roleLabel((user?.role || (user as any)?.ruolo) as Role | null)}
             </p>
           </div>
           <div class="border-t border-black/5 my-1"></div>
-          <form method="POST" action="/logout">
-            <button
-              type="submit"
-              class="w-full text-left px-3 py-2 text-[#1A1A1A] hover:bg-[#F9FAFB] text-xs"
-            >
-              Esci
-            </button>
-          </form>
+          <button
+            type="button"
+            class="w-full text-left px-3 py-2 text-[#1A1A1A] hover:bg-[#F9FAFB] text-xs"
+            onclick={handleLogout}
+          >
+            Esci
+          </button>
         </div>
       {/if}
     </div>
   </div>
 </nav>
+
+<SearchModal open={searchOpen} onclose={() => (searchOpen = false)} />
 

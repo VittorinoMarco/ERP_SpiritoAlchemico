@@ -1,42 +1,58 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { X } from 'lucide-svelte';
 
-  export let aperto = false;
-  export let titolo: string | undefined = undefined;
+  export let open = false;
+  export let title = '';
+  export let size: 'sm' | 'md' | 'lg' | 'xl' = 'lg';
 
-  const dispatch = createEventDispatcher<{ chiudi: void }>();
+  const dispatch = createEventDispatcher<{ close: void }>();
 
-  const handleClose = () => {
-    dispatch('chiudi');
+  const sizeClasses = {
+    sm: 'max-w-md',
+    md: 'max-w-lg',
+    lg: 'max-w-2xl',
+    xl: 'max-w-4xl'
   };
+
+  function handleBackdropClick(e: MouseEvent) {
+    if (e.target === e.currentTarget) {
+      dispatch('close');
+    }
+  }
 </script>
 
-{#if aperto}
+{#if open}
   <div
-    class="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-md px-4 py-8"
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm"
+    onclick={handleBackdropClick}
+    onkeydown={(e) => e.key === 'Escape' && dispatch('close')}
     role="dialog"
     aria-modal="true"
+    aria-labelledby="modal-title"
+    tabindex="-1"
   >
-    <div class="relative w-full max-w-lg rounded-3xl bg-white shadow-xl p-6 lg:p-7">
-      <button
-        type="button"
-        class="absolute right-4 top-4 text-sm text-[#6B7280] hover:text-[#1A1A1A] transition-all duration-200"
-        on:click={handleClose}
-        aria-label="Chiudi"
-      >
-        ✕
-      </button>
-
-      {#if titolo}
-        <h2 class="mb-3 text-lg font-semibold text-[#1A1A1A]">
-          {titolo}
+    <div
+      class="w-full {sizeClasses[size]} rounded-3xl bg-white shadow-xl overflow-hidden"
+      onclick={(e) => e.stopPropagation()}
+      role="presentation"
+    >
+      <div class="flex items-center justify-between px-6 py-4 border-b border-black/5">
+        <h2 id="modal-title" class="text-lg font-semibold text-[#1A1A1A]">
+          {title}
         </h2>
-      {/if}
-
-      <div class="mt-2">
+        <button
+          type="button"
+          class="p-2 rounded-full text-[#6B7280] hover:bg-black/5 hover:text-[#1A1A1A] transition-colors"
+          onclick={() => dispatch('close')}
+          aria-label="Chiudi"
+        >
+          <X class="h-5 w-5" />
+        </button>
+      </div>
+      <div class="p-6 max-h-[70vh] overflow-y-auto">
         <slot />
       </div>
     </div>
   </div>
 {/if}
-

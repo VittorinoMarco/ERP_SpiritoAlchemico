@@ -7,6 +7,8 @@
   export let type: 'button' | 'submit' | 'reset' = 'button';
   export let disabled = false;
   export let className = '';
+  /** @type {((e: MouseEvent) => void) | undefined} */
+  export let onclick = undefined;
 
   const sizeClasses: Record<Size, string> = {
     sm: 'px-4 py-2 text-sm',
@@ -22,6 +24,7 @@
 
 <button
   {type}
+  {onclick}
   class={`inline-flex items-center justify-center gap-2 rounded-2xl font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#F5D547] ${sizeClasses[size]} ${
     disabled ? 'opacity-60 pointer-events-none' : variantClasses[variant]
   } ${className}`}
