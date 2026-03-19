@@ -51,6 +51,55 @@
     return item.expand?.prodotto ?? item.expand?.product;
   }
 
+  /** Imponibile per provvigione: totale_imponibile se valorizzato e numerico, altrimenti totale/1.22 */
+  function getImponibileOrdine(o: Order | null | undefined): number {
+    if (!o) return 0;
+    const raw = o.totale_imponibile;
+    if (raw != null && raw !== '') {
+      const n = Number(raw);
+      if (!Number.isNaN(n) && n >= 0) return n;
+    }
+    const tot = Number(o.totale) || 0;
+    return Math.round((tot / 1.22) * 100) / 100;
+  }
+
+  /** ID agente anche se l'ordine ha expand.agente (relation espansa) */
+  function getAgenteId(o: typeof order): string | null {
+    if (!o?.agente) return null;
+    const a = o.agente as unknown;
+    if (typeof a === 'string') return a;
+    if (typeof a === 'object' && a !== null && 'id' in a) return String((a as { id: string }).id);
+    return null;
+  }
+
+  async function creaProvvigioneSeManca() {
+    const o = order;
+    const agenteId = getAgenteId(o);
+    if (!o || !agenteId) return;
+    try {
+      const existing = await pb.collection('agent_commissions').getList(1, 1, {
+        filter: `ordine = "${orderId}"`
+      });
+      if (existing.totalItems > 0) return;
+      const agenteUser = await pb.collection('users').getOne(agenteId);
+      const pct = Number((agenteUser as any).provvigione_percentuale) || 0;
+      const imponibile = getImponibileOrdine(o);
+      const importo = Math.round(((imponibile * pct) / 100) * 100) / 100;
+      if (importo <= 0 || pct <= 0) return;
+      await pb.collection('agent_commissions').create({
+        agente: agenteId,
+        ordine: orderId,
+        totale_ordine: imponibile,
+        percentuale: pct,
+        importo,
+        stato: 'maturata',
+        data_maturata: new Date().toISOString().split('T')[0]
+      });
+    } catch (e) {
+      console.error('Errore creazione provvigione:', e);
+    }
+  }
+
   onMount(async () => {
     try {
       order = await pb.collection('orders').getOne(orderId, { expand: 'cliente,agente' });
@@ -95,33 +144,15 @@
           email: u.email
         }));
       }
-      // Backfill provvigione: se ordine è consegnato/completato con agente ma senza commissione, creala
-      if (order?.agente && (order.stato === 'consegnato' || order.stato === 'completato')) {
-        try {
-          const existing = await pb.collection('agent_commissions').getList(1, 1, {
-            filter: `ordine = "${orderId}"`
-          });
-          if (existing.totalItems === 0) {
-            const agenteUser = await pb.collection('users').getOne(order.agente);
-            const pct = (agenteUser as any).provvigione_percentuale ?? 0;
-            const imponibile =
-              Number(order.totale_imponibile) ?? (Number(order.totale) || 0) / 1.22;
-            const importo = (imponibile * pct) / 100;
-            if (importo > 0) {
-              await pb.collection('agent_commissions').create({
-                agente: order.agente,
-                ordine: orderId,
-                totale_ordine: imponibile,
-                percentuale: pct,
-                importo,
-                stato: 'maturata',
-                data_maturata: new Date().toISOString().split('T')[0]
-              });
-            }
-          }
-        } catch (e) {
-          console.error('Errore backfill provvigione:', e);
-        }
+      // Backfill: ordine spedito / consegnato / completato con agente → provvigione se manca
+      if (
+        order &&
+        getAgenteId(order) &&
+        (order.stato === 'spedito' ||
+          order.stato === 'consegnato' ||
+          order.stato === 'completato')
+      ) {
+        await creaProvvigioneSeManca();
       }
     } catch {
       order = null;
@@ -175,32 +206,9 @@
           });
         }
       }
-      if (newStato === 'consegnato' && order.agente) {
-        try {
-          const existing = await pb.collection('agent_commissions').getList(1, 1, {
-            filter: `ordine = "${orderId}"`
-          });
-          if (existing.totalItems === 0) {
-            const agenteUser = await pb.collection('users').getOne(order.agente);
-            const pct = (agenteUser as any).provvigione_percentuale ?? 0;
-            const imponibile =
-              Number(order.totale_imponibile) ?? (Number(order.totale) || 0) / 1.22;
-            const importo = (imponibile * pct) / 100;
-            if (importo > 0) {
-              await pb.collection('agent_commissions').create({
-                agente: order.agente,
-                ordine: orderId,
-                totale_ordine: imponibile,
-                percentuale: pct,
-                importo,
-                stato: 'maturata',
-                data_maturata: new Date().toISOString().split('T')[0]
-              });
-            }
-          }
-        } catch (e) {
-          console.error('Errore creazione provvigione:', e);
-        }
+      // Provvigione quando l'ordine passa a "Spedito" (non solo a consegnato)
+      if (newStato === 'spedito') {
+        await creaProvvigioneSeManca();
       }
       let statoToSave = newStato;
       try {

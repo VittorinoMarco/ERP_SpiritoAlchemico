@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { pb } from '$lib/pocketbase';
@@ -44,18 +45,64 @@
   let liquidateModalOpen = false;
   let liquidateDate = '';
   let liquidating = false;
+  /** 'all' = tutte le maturate; altrimenti id selezionati */
+  let liquidateTarget: 'all' | string[] = 'all';
+  let selectedCommissionIds: string[] = [];
   let addClientModalOpen = false;
   let availableClients: { id: string; ragione_sociale?: string }[] = [];
   let selectedClientToAdd = '';
   let addingClient = false;
   let removingClientId: string | null = null;
+  /** Nome/email dalla lista agenti (sessionStorage) se PocketBase non espone i campi su getOne */
+  let fallbackDisplayName = '';
+  let fallbackEmail = '';
 
   const today = new Date().toISOString().split('T')[0];
 
+  function nameFromUserRecord(u: Record<string, unknown> | null | undefined): string {
+    if (!u) return '';
+    const nome = u.nome as string | undefined;
+    const cognome = u.cognome as string | undefined;
+    const parts = [nome, cognome].filter(Boolean);
+    const joined = parts.length ? parts.join(' ') : '';
+    const n =
+      (u.name as string | undefined) ||
+      joined ||
+      (u.username as string | undefined) ||
+      (u.email as string | undefined);
+    return n && String(n).trim() ? String(n).trim() : '';
+  }
+
   function agentName(): string {
-    if (!agent) return '—';
-    const name = (agent as any).name ?? (agent.nome ? [agent.nome, agent.cognome].filter(Boolean).join(' ') : null);
-    return name ?? agent.email ?? '—';
+    if (!agent) {
+      return fallbackDisplayName || `Agente (${agentId.slice(0, 8)}…)`;
+    }
+    const fromRecord = nameFromUserRecord(agent as unknown as Record<string, unknown>);
+    if (fromRecord) return fromRecord;
+    if (fallbackDisplayName) return fallbackDisplayName;
+    return `Agente (${agentId.slice(0, 8)}…)`;
+  }
+
+  function agentSubtitleEmail(): string {
+    const e = agent?.email;
+    if (e && String(e).trim()) return String(e).trim();
+    return fallbackEmail;
+  }
+
+  /** Unisce su `agent` i campi profilo da un altro record users (stessa API, stesso id). */
+  function mergeAgentProfile(from: Record<string, unknown> | null | undefined) {
+    if (!agent || !from || (from.id as string) !== agentId) return;
+    const merged = { ...agent } as Record<string, unknown>;
+    if (!nameFromUserRecord(merged)) {
+      merged.nome = merged.nome || from.nome;
+      merged.cognome = merged.cognome || from.cognome;
+      merged.name = merged.name || from.name;
+    }
+    const fe = merged.email as string | undefined;
+    if (!fe || !String(fe).trim()) {
+      merged.email = (from.email as string | undefined) || fe;
+    }
+    agent = merged as typeof agent;
   }
 
   function formatDate(s: string | null | undefined): string {
@@ -75,11 +122,69 @@
     return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(n);
   }
 
+  /** Imponibile usato per la provvigione (campo DB o ricavo da importo e %) */
+  function commissionImponibileBase(c: AgentCommission): number {
+    const t = Number((c as any).totale_ordine);
+    if (!Number.isNaN(t) && t > 0) return Math.round(t * 100) / 100;
+    const pct = Number(c.percentuale) || 0;
+    const imp = Number(c.importo) || 0;
+    if (pct > 0 && imp > 0) return Math.round((imp * 100 * 100) / pct) / 100;
+    return 0;
+  }
+
+  $: ordiniNumeroById = new Map(orders.map((o) => [o.id, o.numero_ordine ?? '']));
+
+  function commissionNumeroOrdine(c: AgentCommission & { expand?: { ordine?: { numero_ordine?: string } } }): string {
+    const fromExpand = c.expand?.ordine?.numero_ordine;
+    if (fromExpand) return fromExpand;
+    const oid = (c as any).ordine;
+    if (oid && typeof oid === 'string') {
+      const n = ordiniNumeroById.get(oid);
+      if (n) return n;
+    }
+    return '—';
+  }
+
+  function commissionOrdineId(c: AgentCommission): string | null {
+    const oid = (c as any).ordine;
+    return oid && typeof oid === 'string' ? oid : null;
+  }
+
+  function toggleCommissionSelect(id: string) {
+    if (selectedCommissionIds.includes(id)) {
+      selectedCommissionIds = selectedCommissionIds.filter((x) => x !== id);
+    } else {
+      selectedCommissionIds = [...selectedCommissionIds, id];
+    }
+  }
+
+  function selectAllMaturate() {
+    selectedCommissionIds = maturate.map((c) => c.id);
+  }
+
+  function clearCommissionSelection() {
+    selectedCommissionIds = [];
+  }
+
   $: maturate = commissions.filter((c) => c.stato === 'maturata');
   $: liquidate = commissions.filter((c) => c.stato === 'liquidata');
   $: totaleMaturate = maturate.reduce((s, c) => s + (c.importo ?? 0), 0);
   $: totaleLiquidate = liquidate.reduce((s, c) => s + (c.importo ?? 0), 0);
   $: provvigioneTotale = totaleMaturate + totaleLiquidate;
+
+  $: selectedMaturateList = maturate.filter((c) => selectedCommissionIds.includes(c.id));
+  $: totaleSelectedMaturate = selectedMaturateList.reduce((s, c) => s + (c.importo ?? 0), 0);
+
+  $: liquidateModalCount =
+    liquidateTarget === 'all'
+      ? maturate.length
+      : (liquidateTarget as string[]).length;
+  $: liquidateModalTotal =
+    liquidateTarget === 'all'
+      ? totaleMaturate
+      : maturate
+          .filter((c) => (liquidateTarget as string[]).includes(c.id))
+          .reduce((s, c) => s + (c.importo ?? 0), 0);
 
   $: performanceMensile = (() => {
     const byMonth: Record<string, number> = {};
@@ -126,19 +231,55 @@
   };
 
   onMount(async () => {
+    if (browser) {
+      try {
+        fallbackDisplayName = sessionStorage.getItem(`agentDisplay:${agentId}`) ?? '';
+        fallbackEmail = sessionStorage.getItem(`agentEmail:${agentId}`) ?? '';
+      } catch {
+        fallbackDisplayName = '';
+        fallbackEmail = '';
+      }
+    }
     try {
-      agent = await pb.collection('users').getOne(agentId) as typeof agent;
+      const [oneResult, listResult] = await Promise.allSettled([
+        pb.collection('users').getOne(agentId),
+        // Stessa query “lista agenti”: PB spesso espone nome/email qui anche quando getOne è ridotto
+        pb.collection('users').getFullList({ filter: `ruolo = "agente" && id = "${agentId}"` })
+      ]);
+      agent =
+        oneResult.status === 'fulfilled'
+          ? (oneResult.value as typeof agent)
+          : listResult.status === 'fulfilled' && listResult.value[0]
+            ? (listResult.value[0] as typeof agent)
+            : null;
+      let profileRow: Record<string, unknown> | undefined =
+        listResult.status === 'fulfilled' && listResult.value[0]
+          ? (listResult.value[0] as Record<string, unknown>)
+          : undefined;
+      if (!profileRow) {
+        try {
+          const byId = await pb.collection('users').getFullList({ filter: `id = "${agentId}"` });
+          profileRow = byId[0] as Record<string, unknown> | undefined;
+        } catch {
+          profileRow = undefined;
+        }
+      }
+      if (agent && profileRow) mergeAgentProfile(profileRow);
+      else if (!agent && profileRow) {
+        agent = profileRow as typeof agent;
+      }
       provvigionePercentuale = String(agent?.provvigione_percentuale ?? 0);
 
       const [clientsResult, ordersResult, commResult] = await Promise.allSettled([
         pb.collection('clients').getFullList({ filter: `agente = "${agentId}"` }),
         pb.collection('orders').getFullList({
           filter: `agente = "${agentId}"`,
-          sort: '-data_ordine'
+          sort: '-data_ordine',
+          expand: 'agente'
         }),
         pb.collection('agent_commissions').getFullList({
           filter: `agente = "${agentId}"`,
-          expand: 'ordine',
+          expand: 'agente,ordine',
           sort: '-data_maturata'
         })
       ]);
@@ -147,13 +288,17 @@
       const ordersList = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
       orders = ordersList;
 
+      // Arricchisci profilo da expand ordine (se presente)
+      const agFromOrder = (ordersList as any[])[0]?.expand?.agente;
+      if (agFromOrder) mergeAgentProfile(agFromOrder as Record<string, unknown>);
+
       let commList =
         commResult.status === 'fulfilled' ? commResult.value : [];
       if (commResult.status === 'rejected') {
         try {
           commList = await pb.collection('agent_commissions').getFullList({
             filter: `agente = "${agentId}"`,
-            expand: 'ordine',
+            expand: 'agente,ordine',
             sort: '-created'
           });
           commList = (commList as any[]).sort(
@@ -163,6 +308,10 @@
           commList = [];
         }
       }
+
+      // Nome/email da expand provvigioni (utile se zero ordini ma ci sono commissioni)
+      const agFromComm = (commList as any[]).find((c) => c.expand?.agente)?.expand?.agente;
+      if (agFromComm) mergeAgentProfile(agFromComm as Record<string, unknown>);
 
       const ordersById = new Map(
         (ordersList as any[]).map((o) => [o.id, { numero_ordine: o.numero_ordine }])
@@ -204,9 +353,14 @@
 
   async function liquidaProvvigioni() {
     if (!liquidateDate || liquidating) return;
+    const toLiquidate =
+      liquidateTarget === 'all'
+        ? maturate
+        : maturate.filter((c) => (liquidateTarget as string[]).includes(c.id));
+    if (toLiquidate.length === 0) return;
     liquidating = true;
     try {
-      for (const c of maturate) {
+      for (const c of toLiquidate) {
         await pb.collection('agent_commissions').update(c.id, {
           stato: 'liquidata',
           data_liquidazione: liquidateDate
@@ -240,11 +394,26 @@
       });
       liquidateModalOpen = false;
       liquidateDate = '';
+      liquidateTarget = 'all';
+      selectedCommissionIds = [];
     } catch (e) {
       console.error(e);
     } finally {
       liquidating = false;
     }
+  }
+
+  function openLiquidateAll() {
+    liquidateTarget = 'all';
+    liquidateDate = today;
+    liquidateModalOpen = true;
+  }
+
+  function openLiquidateSelected() {
+    if (selectedCommissionIds.length === 0) return;
+    liquidateTarget = [...selectedCommissionIds];
+    liquidateDate = today;
+    liquidateModalOpen = true;
   }
 
   async function openAddClientModal() {
@@ -303,7 +472,7 @@
     </button>
     <div class="flex-1">
       <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">{agentName()}</h1>
-      <p class="text-sm text-[#6B7280] mt-0.5">{agent?.email ?? '—'}</p>
+      <p class="text-sm text-[#6B7280] mt-0.5">{agentSubtitleEmail() || '—'}</p>
     </div>
     <Button
       variant="ghost"
@@ -461,6 +630,10 @@
 
     {#if activeTab === 'provvigioni'}
       <Card>
+        <p class="text-sm text-[#6B7280] mb-4">
+          <strong class="text-[#1A1A1A]">Una provvigione per ordine.</strong> L’importo è calcolato sull’
+          <strong>imponibile totale dell’ordine</strong> (totale con IVA ÷ 1,22 oppure campo imponibile), non sulle singole righe prodotto.
+        </p>
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div class="flex flex-wrap gap-4">
             <div>
@@ -471,20 +644,52 @@
               <p class="text-xs text-[#6B7280]">Liquidate</p>
               <p class="text-xl font-bold text-green-600">{formatEuro(totaleLiquidate)}</p>
             </div>
+            {#if selectedCommissionIds.length > 0}
+              <div>
+                <p class="text-xs text-[#6B7280]">Selezionate</p>
+                <p class="text-xl font-bold text-[#1A1A1A]">{formatEuro(totaleSelectedMaturate)}</p>
+              </div>
+            {/if}
           </div>
           {#if maturate.length > 0}
-            <Button
-              variant="primary"
-              size="sm"
-              className="rounded-2xl !bg-[#1A1A1A]"
-              onclick={() => {
-                liquidateDate = today;
-                liquidateModalOpen = true;
-              }}
-            >
-              <CheckCircle class="h-4 w-4" />
-              Liquida provvigioni
-            </Button>
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-2xl text-xs"
+                onclick={selectAllMaturate}
+              >
+                Seleziona tutte (maturate)
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-2xl text-xs"
+                onclick={clearCommissionSelection}
+                disabled={selectedCommissionIds.length === 0}
+              >
+                Deseleziona
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                className="rounded-2xl !bg-[#1A1A1A]"
+                disabled={selectedCommissionIds.length === 0}
+                onclick={openLiquidateSelected}
+              >
+                <CheckCircle class="h-4 w-4" />
+                Liquida selezionate
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                className="rounded-2xl !bg-[#6B7280]"
+                onclick={openLiquidateAll}
+              >
+                <CheckCircle class="h-4 w-4" />
+                Liquida tutte
+              </Button>
+            </div>
           {/if}
         </div>
 
@@ -492,8 +697,9 @@
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-black/5">
+                <th class="px-2 py-3 w-10" aria-label="Seleziona"></th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280]">Ordine</th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280]">Totale ordine</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280]">Imponibile base</th>
                 <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280]">%</th>
                 <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280]">Importo</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280]">Stato</th>
@@ -503,10 +709,28 @@
             <tbody>
               {#each commissions as c}
                 <tr class="border-b border-black/5 last:border-0 hover:bg-[#FFFDE7]">
-                  <td class="px-4 py-3 font-medium text-[#1A1A1A]">
-                    {c.expand?.ordine?.numero_ordine ?? '—'}
+                  <td class="px-2 py-3 align-middle">
+                    {#if c.stato === 'maturata'}
+                      <input
+                        type="checkbox"
+                        class="h-4 w-4 rounded border-black/20"
+                        checked={selectedCommissionIds.includes(c.id)}
+                        onchange={() => toggleCommissionSelect(c.id)}
+                        aria-label="Seleziona provvigione"
+                      />
+                    {/if}
                   </td>
-                  <td class="px-4 py-3 text-right text-[#6B7280]">{formatEuro(c.totale_ordine ?? 0)}</td>
+                  <td class="px-4 py-3 font-medium text-[#1A1A1A]">
+                    {#if commissionOrdineId(c)}
+                      <a
+                        href="/ordini/{commissionOrdineId(c)}"
+                        class="text-[#1A1A1A] underline decoration-[#F5D547] hover:text-[#6B7280]"
+                      >{commissionNumeroOrdine(c)}</a>
+                    {:else}
+                      {commissionNumeroOrdine(c)}
+                    {/if}
+                  </td>
+                  <td class="px-4 py-3 text-right text-[#6B7280]">{formatEuro(commissionImponibileBase(c))}</td>
                   <td class="px-4 py-3 text-right text-[#6B7280]">{c.percentuale ?? 0}%</td>
                   <td class="px-4 py-3 text-right font-bold text-[#1A1A1A]">{formatEuro(c.importo ?? 0)}</td>
                   <td class="px-4 py-3">
@@ -611,11 +835,18 @@
   open={liquidateModalOpen}
   title="Liquida provvigioni"
   size="sm"
-  on:close={() => (liquidateModalOpen = false)}
+  on:close={() => {
+    liquidateModalOpen = false;
+    liquidateTarget = 'all';
+  }}
 >
   <form onsubmit={(e) => { e.preventDefault(); liquidaProvvigioni(); }} class="space-y-5">
     <p class="text-sm text-[#6B7280]">
-      Segna come liquidate {maturate.length} provvigioni per un totale di {formatEuro(totaleMaturate)}.
+      Segna come liquidate <strong>{liquidateModalCount}</strong> provvigioni per un totale di
+      <strong>{formatEuro(liquidateModalTotal)}</strong>.
+      {#if liquidateTarget !== 'all'}
+        <span class="block mt-1 text-xs">(solo le righe selezionate)</span>
+      {/if}
     </p>
     <div>
       <label for="liq_date" class="block text-sm font-medium text-[#1A1A1A] mb-2">

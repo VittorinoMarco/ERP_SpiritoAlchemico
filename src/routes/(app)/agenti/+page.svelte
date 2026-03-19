@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { pb } from '$lib/pocketbase';
   import Card from '$lib/components/ui/Card.svelte';
@@ -51,6 +52,17 @@
     return ag.email ?? '—';
   }
 
+  /** PocketBase può non restituire nome/email su getOne(users): passa hint dalla lista alla pagina dettaglio */
+  function storeAgentNavHint(id: string, displayName: string, email?: string) {
+    if (!browser) return;
+    try {
+      sessionStorage.setItem(`agentDisplay:${id}`, displayName);
+      if (email) sessionStorage.setItem(`agentEmail:${id}`, email);
+    } catch {
+      /* ignore */
+    }
+  }
+
   function formatDate(s: string | null | undefined): string {
     if (!s) return '—';
     try {
@@ -66,6 +78,15 @@
 
   function formatEuro(n: number): string {
     return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(n);
+  }
+
+  function commissionImponibileBase(c: AgentCommission): number {
+    const t = Number((c as any).totale_ordine);
+    if (!Number.isNaN(t) && t > 0) return Math.round(t * 100) / 100;
+    const pct = Number(c.percentuale) || 0;
+    const imp = Number(c.importo) || 0;
+    if (pct > 0 && imp > 0) return Math.round((imp * 100 * 100) / pct) / 100;
+    return 0;
   }
 
   onMount(async () => {
@@ -248,7 +269,11 @@
   {:else if activeTab === 'agenti'}
     <section class="page-grid">
       {#each agents as agent (agent.id)}
-        <a href="/agenti/{agent.id}" class="block">
+        <a
+          href="/agenti/{agent.id}"
+          class="block"
+          onclick={() => storeAgentNavHint(agent.id, agentName(agent), agent.email)}
+        >
         <Card
           className="cursor-pointer hover:shadow-md transition-shadow"
         >
@@ -328,7 +353,7 @@
             <tr class="border-b border-black/5">
               <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280]">Agente</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280]">Ordine</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280]">Totale ordine</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280]">Imponibile base</th>
               <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280]">%</th>
               <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280]">Importo</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280]">Stato</th>
@@ -339,16 +364,26 @@
             {#each allCommissions as c}
               <tr
                 class="border-b border-black/5 last:border-0 hover:bg-[#FFFDE7] cursor-pointer"
-                onclick={() => c.agente && goto(`/agenti/${c.agente}`)}
+                onclick={() => {
+                  if (!c.agente) return;
+                  const ag = c.expand?.agente;
+                  storeAgentNavHint(c.agente, agentLabel(ag), ag?.email);
+                  goto(`/agenti/${c.agente}`);
+                }}
                 role="button"
                 tabindex="0"
-                onkeydown={(e) => e.key === 'Enter' && c.agente && goto(`/agenti/${c.agente}`)}
+                onkeydown={(e) => {
+                  if (e.key !== 'Enter' || !c.agente) return;
+                  const ag = c.expand?.agente;
+                  storeAgentNavHint(c.agente, agentLabel(ag), ag?.email);
+                  goto(`/agenti/${c.agente}`);
+                }}
               >
                 <td class="px-4 py-3 font-medium text-[#1A1A1A]">
                   {agentLabel(c.expand?.agente)}
                 </td>
                 <td class="px-4 py-3 text-[#6B7280]">{c.expand?.ordine?.numero_ordine ?? '—'}</td>
-                <td class="px-4 py-3 text-right text-[#6B7280]">{formatEuro(c.totale_ordine ?? 0)}</td>
+                <td class="px-4 py-3 text-right text-[#6B7280]">{formatEuro(commissionImponibileBase(c))}</td>
                 <td class="px-4 py-3 text-right text-[#6B7280]">{c.percentuale ?? 0}%</td>
                 <td class="px-4 py-3 text-right font-bold text-[#1A1A1A]">{formatEuro(c.importo ?? 0)}</td>
                 <td class="px-4 py-3">
