@@ -11,6 +11,9 @@ export interface Order extends RecordModel {
   stato: OrderStato;
   canale: OrderCanale;
   totale: number;
+  totale_imponibile?: number;
+  iva?: number;
+  iva_percentuale?: number;
   note?: string;
   ddt_numero?: string;
 }

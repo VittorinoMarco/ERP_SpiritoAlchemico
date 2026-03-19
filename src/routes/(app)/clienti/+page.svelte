@@ -14,7 +14,8 @@
     MapPin,
     ArrowUp,
     ArrowDown,
-    Minus
+    Minus,
+    Trash2
   } from 'lucide-svelte';
   import type { Client, ClientTipo } from '$lib/types/client';
   import { TIPO_LABELS, TIPO_BADGE_COLORS } from '$lib/types/client';
@@ -43,6 +44,7 @@
   let modalOpen = false;
   let editingClient: Client | null = null;
   let page = 1;
+  let deleting = false;
   let sortKey: SortKey = 'ragione_sociale';
   let sortDir: SortDir = 'asc';
   export let data: { user?: { id?: string; role?: string } | null } = { user: null };
@@ -99,23 +101,46 @@
   onMount(async () => {
     try {
       const filter = isAgente && user?.id ? `agente = "${user.id}"` : '';
-      clients = await pb.collection('clients').getFullList({
-        filter: filter || undefined,
-        expand: 'agente'
-      });
+      const [clientsResult, agentsResult, ordersResult] = await Promise.allSettled([
+        pb.collection('clients').getFullList({
+          ...(filter && { filter }),
+          expand: 'agente'
+        }),
+        isAdmin
+          ? pb.collection('users').getFullList({ filter: 'ruolo = "agente"' })
+          : Promise.resolve([]),
+        pb.collection('orders').getFullList()
+      ]);
 
-      if (isAdmin) {
-        const usersList = await pb.collection('users').getFullList({
-          filter: 'ruolo = "agente"'
-        });
-        agents = usersList.map((u: any) => ({
+      let clientsList = clientsResult.status === 'fulfilled' ? clientsResult.value : [];
+      if (clientsResult.status === 'rejected') {
+        try {
+          clientsList = await pb.collection('clients').getFullList({
+            ...(filter && { filter })
+          });
+        } catch {
+          clientsList = [];
+        }
+      }
+
+      if (agentsResult.status === 'fulfilled' && Array.isArray(agentsResult.value)) {
+        agents = (agentsResult.value as any[]).map((u) => ({
           id: u.id,
           name: u.nome ? [u.nome, u.cognome].filter(Boolean).join(' ') : u.email,
           email: u.email
         }));
       }
 
-      const orders = await pb.collection('orders').getFullList();
+      const agentsById = new Map(agents.map((a) => [a.id, { name: a.name, email: a.email }]));
+      clients = (clientsList as any[]).map((c) => {
+        if (!c.expand?.agente && c.agente) {
+          const ag = agentsById.get(c.agente);
+          c.expand = { ...c.expand, agente: ag ? { name: ag.name, email: ag.email } : undefined };
+        }
+        return c;
+      });
+
+      const orders = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
       const byClient: Record<string, { count: number; lastDate: string | null }> = {};
       for (const o of orders) {
         const cid = o.cliente;
@@ -187,6 +212,23 @@
       });
   }
 
+  async function handleBulkDelete() {
+    if (!isAdmin || selectedIds.size === 0 || deleting) return;
+    if (!confirm(`Eliminare ${selectedIds.size} cliente/i selezionato/i?`)) return;
+    deleting = true;
+    try {
+      for (const id of selectedIds) {
+        await pb.collection('clients').delete(id);
+      }
+      clients = clients.filter((c) => !selectedIds.has(c.id));
+      selectedIds = new Set();
+    } catch (e) {
+      alert((e as Error)?.message ?? 'Errore durante l\'eliminazione');
+    } finally {
+      deleting = false;
+    }
+  }
+
   function formatDate(s: string | null | undefined): string {
     if (!s) return '—';
     try {
@@ -224,8 +266,8 @@
       'Ultimo Ordine'
     ];
     const rows = sortedClients.map((c) => {
-      const ag = c.expand?.agente;
-      const agName = ag?.name ?? ag?.email ?? '—';
+      const ag = c.expand?.agente as { name?: string; nome?: string; cognome?: string; email?: string } | undefined;
+      const agName = ag?.name ?? (ag?.nome ? [ag.nome, ag.cognome].filter(Boolean).join(' ') : null) ?? ag?.email ?? '—';
       return [
         c.ragione_sociale,
         TIPO_LABELS[c.tipo as ClientTipo] ?? c.tipo,
@@ -304,6 +346,18 @@
         <Download class="h-4 w-4" />
         Export CSV
       </Button>
+      {#if isAdmin && selectedIds.size > 0}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="rounded-2xl text-red-600 hover:bg-red-50 hover:text-red-700"
+          onclick={handleBulkDelete}
+          disabled={deleting}
+        >
+          <Trash2 class="h-4 w-4" />
+          Elimina ({selectedIds.size})
+        </Button>
+      {/if}
       <Button
         variant="primary"
         size="sm"
@@ -443,14 +497,17 @@
                 </td>
                 <td class="px-4 py-3">
                   {#if c.expand?.agente}
+                    {@const agName = c.expand.agente.name ?? (c.expand.agente as any).nome
+                      ? [(c.expand.agente as any).nome, (c.expand.agente as any).cognome].filter(Boolean).join(' ')
+                      : null}
                     <span class="inline-flex items-center gap-2">
                       <span
                         class="h-7 w-7 rounded-full bg-[#1A1A1A] text-white flex items-center justify-center text-[10px] font-medium"
                       >
-                        {initials(c.expand.agente.name, c.expand.agente.email)}
+                        {initials(agName, c.expand.agente.email)}
                       </span>
                       <span class="text-sm text-[#1A1A1A]">
-                        {c.expand.agente.name ?? c.expand.agente.email ?? '—'}
+                        {agName ?? c.expand.agente.email ?? '—'}
                       </span>
                     </span>
                   {:else}

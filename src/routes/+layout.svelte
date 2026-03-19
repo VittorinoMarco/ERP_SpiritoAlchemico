@@ -20,7 +20,7 @@
 </script>
 
 <div class="min-h-screen flex flex-col">
-  <header class="sticky top-0 z-30 flex justify-center pt-4 pb-2 px-4">
+  <header class="sticky top-0 z-30 flex justify-center pt-3 pb-2 px-2 sm:pt-4 sm:px-4">
     <Navbar user={data.user} />
   </header>
 

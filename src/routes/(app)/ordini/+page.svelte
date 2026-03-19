@@ -75,7 +75,7 @@
     try {
       const filter = isAgente && user?.id ? `agente = "${user.id}"` : '';
       orders = await pb.collection('orders').getFullList({
-        filter: filter || undefined,
+        ...(filter && { filter }),
         expand: 'cliente,agente',
         sort: '-data_ordine'
       });

@@ -31,6 +31,7 @@
   let canale: OrderCanale = 'horeca';
   let agenteId = '';
   let note = '';
+  let ivaPercentuale = 22;
   let saving = false;
   let error = '';
 
@@ -53,8 +54,8 @@
   );
 
   $: totaleImponibile = lineItems.reduce((s, r) => s + r.totale_riga, 0);
-  $: iva = 0; // IVA 0% per semplificare, o calcolare 22%
-  $: totaleOrdine = totaleImponibile + iva;
+  $: iva = Math.round(totaleImponibile * (ivaPercentuale / 100) * 100) / 100;
+  $: totaleOrdine = Math.round((totaleImponibile + iva) * 100) / 100;
 
   function getProductPrice(p: Product): number {
     if (canale === 'horeca') return p.prezzo_horeca ?? p.prezzo_listino ?? 0;
@@ -150,11 +151,21 @@
     }
   });
 
+  function validateLines(): boolean {
+    const invalid = lineItems.filter((l) => !l.prodotto || l.prodotto === '0');
+    if (invalid.length > 0) {
+      error = 'Ogni riga deve avere un prodotto selezionato.';
+      return false;
+    }
+    return true;
+  }
+
   async function saveAsBozza() {
     if (!selectedClient || lineItems.length === 0) {
       error = 'Seleziona un cliente e aggiungi almeno una riga.';
       return;
     }
+    if (!validateLines()) return;
     saving = true;
     error = '';
     try {
@@ -166,6 +177,9 @@
         stato: 'bozza',
         canale,
         totale: totaleOrdine,
+        totale_imponibile: totaleImponibile,
+        iva,
+        iva_percentuale: ivaPercentuale,
         note: note.trim() || undefined
       });
       for (const line of lineItems) {
@@ -192,6 +206,7 @@
       error = 'Seleziona un cliente e aggiungi almeno una riga.';
       return;
     }
+    if (!validateLines()) return;
     saving = true;
     error = '';
     try {
@@ -203,6 +218,9 @@
         stato: 'confermato',
         canale,
         totale: totaleOrdine,
+        totale_imponibile: totaleImponibile,
+        iva,
+        iva_percentuale: ivaPercentuale,
         note: note.trim() || undefined
       });
       for (const line of lineItems) {
@@ -425,13 +443,26 @@
         <!-- Card riepilogo -->
         <Card>
           <h2 class="text-sm font-medium text-[#1A1A1A] mb-4">Riepilogo</h2>
+          <div class="mb-4">
+            <label for="iva" class="block text-sm text-[#6B7280] mb-1">Aliquota IVA %</label>
+            <select
+              id="iva"
+              bind:value={ivaPercentuale}
+              class="w-full rounded-xl border border-black/5 bg-white/80 px-3 py-2 text-sm focus:ring-2 focus:ring-[#F5D547]"
+            >
+              <option value={0}>0%</option>
+              <option value={4}>4%</option>
+              <option value={10}>10%</option>
+              <option value={22}>22%</option>
+            </select>
+          </div>
           <dl class="space-y-3">
             <div class="flex justify-between">
               <dt class="text-sm text-[#6B7280]">Imponibile</dt>
               <dd class="text-lg font-bold text-[#1A1A1A]">{formatEuro(totaleImponibile)}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-sm text-[#6B7280]">IVA</dt>
+              <dt class="text-sm text-[#6B7280]">IVA ({ivaPercentuale}%)</dt>
               <dd class="text-lg font-bold text-[#1A1A1A]">{formatEuro(iva)}</dd>
             </div>
             <div class="flex justify-between pt-3 border-t border-black/5">

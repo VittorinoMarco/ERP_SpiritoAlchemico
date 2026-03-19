@@ -69,18 +69,69 @@
 
   onMount(async () => {
     try {
-      const [usersList, clientsList, ordersList, invoicesList, commissionsMaturate, commissionsAll] =
-        await Promise.all([
-          pb.collection('users').getFullList({ filter: 'ruolo = "agente"' }),
-          pb.collection('clients').getFullList(),
-          pb.collection('orders').getFullList({ expand: 'cliente' }),
-          pb.collection('invoices').getFullList({ expand: 'ordine' }),
-          pb.collection('agent_commissions').getFullList({ filter: 'stato = "maturata"' }),
-          pb.collection('agent_commissions').getFullList({ expand: 'agente,ordine', sort: '-data_maturata' })
-        ]);
+      // Usa allSettled così gli agenti (da users) caricano anche se agent_commissions fallisce (es. 400)
+      const [
+        usersResult,
+        clientsResult,
+        ordersResult,
+        invoicesResult,
+        commissionsMaturateResult,
+        commissionsAllResult
+      ] = await Promise.allSettled([
+        pb.collection('users').getFullList({ filter: 'ruolo = "agente"' }),
+        pb.collection('clients').getFullList(),
+        pb.collection('orders').getFullList({ expand: 'cliente' }),
+        pb.collection('invoices').getFullList({ expand: 'ordine' }),
+        pb.collection('agent_commissions').getFullList({ filter: 'stato = "maturata"' }),
+        pb.collection('agent_commissions').getFullList({
+          expand: 'agente,ordine',
+          sort: '-data_maturata'
+        })
+      ]);
+
+      const usersList = usersResult.status === 'fulfilled' ? usersResult.value : [];
+      const clientsList = clientsResult.status === 'fulfilled' ? clientsResult.value : [];
+      const ordersList = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
+      const invoicesList = invoicesResult.status === 'fulfilled' ? invoicesResult.value : [];
+      let commissionsMaturate =
+        commissionsMaturateResult.status === 'fulfilled' ? commissionsMaturateResult.value : [];
+      let commissionsAll =
+        commissionsAllResult.status === 'fulfilled' ? commissionsAllResult.value : [];
+
+      // Fallback: se agent_commissions con expand/sort=-data_maturata dà 400 (campo mancante, ecc.)
+      // riprova con sort=-created (campo sempre presente)
+      if (commissionsAllResult.status === 'rejected' && commissionsAll.length === 0) {
+        try {
+          commissionsAll = await pb.collection('agent_commissions').getFullList({
+            expand: 'agente,ordine',
+            sort: '-created'
+          });
+          commissionsAll = (commissionsAll as any[]).sort(
+            (a, b) => (b.data_maturata ?? b.created ?? '').localeCompare(a.data_maturata ?? a.created ?? '')
+          );
+        } catch {
+          try {
+            commissionsAll = await pb.collection('agent_commissions').getFullList({ sort: '-created' });
+            commissionsAll = (commissionsAll as any[]).sort(
+              (a, b) => (b.data_maturata ?? b.created ?? '').localeCompare(a.data_maturata ?? a.created ?? '')
+            );
+          } catch {
+            commissionsAll = [];
+          }
+        }
+      }
+      if (commissionsMaturateResult.status === 'rejected' && commissionsMaturate.length === 0) {
+        try {
+          commissionsMaturate = await pb.collection('agent_commissions').getFullList({
+            filter: 'stato = "maturata"'
+          });
+        } catch {
+          commissionsMaturate = [];
+        }
+      }
 
       const agentsMap = new Map<string, AgentWithStats>();
-      for (const u of usersList as any[]) {
+      for (const u of (usersList as any[])) {
         agentsMap.set(u.id, {
           id: u.id,
           nome: u.nome,
@@ -128,7 +179,27 @@
       }
 
       agents = Array.from(agentsMap.values());
-      allCommissions = commissionsAll as typeof allCommissions;
+
+      // Se expand è mancante (fallback), arricchisci con dati da usersList e ordersList
+      const usersById = new Map(
+        (usersList as any[]).map((u) => [u.id, { nome: u.nome, cognome: u.cognome, email: u.email }])
+      );
+      const ordersById = new Map(
+        (ordersList as any[]).map((o) => [o.id, { numero_ordine: o.numero_ordine }])
+      );
+      allCommissions = (commissionsAll as any[]).map((c) => {
+        const base = { ...c } as (typeof allCommissions)[0];
+        base.expand = { ...base.expand };
+        if (!base.expand?.agente && base.agente) {
+          const ag = usersById.get(base.agente);
+          base.expand.agente = ag ? { nome: ag.nome, cognome: ag.cognome, email: ag.email } : undefined;
+        }
+        if (!base.expand?.ordine && base.ordine) {
+          const ord = ordersById.get(base.ordine);
+          base.expand.ordine = ord ? { numero_ordine: ord.numero_ordine } : undefined;
+        }
+        return base;
+      });
     } catch {
       agents = [];
       allCommissions = [];

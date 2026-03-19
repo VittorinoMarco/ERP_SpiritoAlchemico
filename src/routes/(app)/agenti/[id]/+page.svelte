@@ -15,7 +15,9 @@
     Percent,
     Settings,
     CheckCircle,
-    ChevronRight
+    ChevronRight,
+    UserPlus,
+    UserMinus
   } from 'lucide-svelte';
   import type { AgentCommission, CommissionStato } from '$lib/types/agent';
   import { COMMISSION_STATO_LABELS, COMMISSION_STATO_BADGE } from '$lib/types/agent';
@@ -42,6 +44,11 @@
   let liquidateModalOpen = false;
   let liquidateDate = '';
   let liquidating = false;
+  let addClientModalOpen = false;
+  let availableClients: { id: string; ragione_sociale?: string }[] = [];
+  let selectedClientToAdd = '';
+  let addingClient = false;
+  let removingClientId: string | null = null;
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -72,6 +79,7 @@
   $: liquidate = commissions.filter((c) => c.stato === 'liquidata');
   $: totaleMaturate = maturate.reduce((s, c) => s + (c.importo ?? 0), 0);
   $: totaleLiquidate = liquidate.reduce((s, c) => s + (c.importo ?? 0), 0);
+  $: provvigioneTotale = totaleMaturate + totaleLiquidate;
 
   $: performanceMensile = (() => {
     const byMonth: Record<string, number> = {};
@@ -122,7 +130,7 @@
       agent = await pb.collection('users').getOne(agentId) as typeof agent;
       provvigionePercentuale = String(agent?.provvigione_percentuale ?? 0);
 
-      const [clientsList, ordersList, commList] = await Promise.all([
+      const [clientsResult, ordersResult, commResult] = await Promise.allSettled([
         pb.collection('clients').getFullList({ filter: `agente = "${agentId}"` }),
         pb.collection('orders').getFullList({
           filter: `agente = "${agentId}"`,
@@ -134,9 +142,40 @@
           sort: '-data_maturata'
         })
       ]);
-      clients = clientsList;
+
+      clients = clientsResult.status === 'fulfilled' ? clientsResult.value : [];
+      const ordersList = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
       orders = ordersList;
-      commissions = commList;
+
+      let commList =
+        commResult.status === 'fulfilled' ? commResult.value : [];
+      if (commResult.status === 'rejected') {
+        try {
+          commList = await pb.collection('agent_commissions').getFullList({
+            filter: `agente = "${agentId}"`,
+            expand: 'ordine',
+            sort: '-created'
+          });
+          commList = (commList as any[]).sort(
+            (a, b) => (b.data_maturata ?? b.created ?? '').localeCompare(a.data_maturata ?? a.created ?? '')
+          );
+        } catch {
+          commList = [];
+        }
+      }
+
+      const ordersById = new Map(
+        (ordersList as any[]).map((o) => [o.id, { numero_ordine: o.numero_ordine }])
+      );
+      commissions = (commList as any[]).map((c) => {
+        const base = { ...c } as (typeof commissions)[0];
+        base.expand = { ...base.expand };
+        if (!base.expand?.ordine && base.ordine) {
+          const ord = ordersById.get(base.ordine);
+          base.expand.ordine = ord ? { numero_ordine: ord.numero_ordine } : undefined;
+        }
+        return base;
+      });
     } catch {
       agent = null;
       clients = [];
@@ -173,10 +212,31 @@
           data_liquidazione: liquidateDate
         });
       }
-      commissions = await pb.collection('agent_commissions').getFullList({
-        filter: `agente = "${agentId}"`,
-        expand: 'ordine',
-        sort: '-data_maturata'
+      let commList: any[];
+      try {
+        commList = await pb.collection('agent_commissions').getFullList({
+          filter: `agente = "${agentId}"`,
+          expand: 'ordine',
+          sort: '-data_maturata'
+        });
+      } catch {
+        commList = await pb.collection('agent_commissions').getFullList({
+          filter: `agente = "${agentId}"`,
+          sort: '-created'
+        });
+        commList = commList.sort(
+          (a: any, b: any) => (b.data_maturata ?? b.created ?? '').localeCompare(a.data_maturata ?? a.created ?? '')
+        );
+      }
+      const ordersById = new Map(orders.map((o) => [o.id, { numero_ordine: o.numero_ordine }]));
+      commissions = commList.map((c: any) => {
+        const base = { ...c } as (typeof commissions)[0];
+        base.expand = { ...base.expand };
+        if (!base.expand?.ordine && base.ordine) {
+          const ord = ordersById.get(base.ordine);
+          base.expand.ordine = ord ? { numero_ordine: ord.numero_ordine } : undefined;
+        }
+        return base;
       });
       liquidateModalOpen = false;
       liquidateDate = '';
@@ -184,6 +244,45 @@
       console.error(e);
     } finally {
       liquidating = false;
+    }
+  }
+
+  async function openAddClientModal() {
+    addClientModalOpen = true;
+    selectedClientToAdd = '';
+    try {
+      const all = await pb.collection('clients').getFullList();
+      availableClients = (all as any[]).filter((c) => c.agente !== agentId);
+    } catch {
+      availableClients = [];
+    }
+  }
+
+  async function assignClient() {
+    if (!selectedClientToAdd || addingClient) return;
+    addingClient = true;
+    try {
+      await pb.collection('clients').update(selectedClientToAdd, { agente: agentId });
+      const updated = await pb.collection('clients').getFullList({ filter: `agente = "${agentId}"` });
+      clients = updated;
+      addClientModalOpen = false;
+    } catch (e) {
+      console.error(e);
+    } finally {
+      addingClient = false;
+    }
+  }
+
+  async function removeClient(clientId: string) {
+    if (removingClientId) return;
+    removingClientId = clientId;
+    try {
+      await pb.collection('clients').update(clientId, { agente: '' });
+      clients = clients.filter((c) => c.id !== clientId);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      removingClientId = null;
     }
   }
 </script>
@@ -236,6 +335,26 @@
       </div>
     </Card>
   {:else}
+    <!-- Dashboard riepilogo provvigioni -->
+    <div class="flex flex-wrap gap-4">
+      <div class="rounded-2xl bg-[#1A1A1A] px-5 py-4 text-white">
+        <p class="text-xs text-white/70">Provvigione totale</p>
+        <p class="text-2xl font-bold">{formatEuro(provvigioneTotale)}</p>
+      </div>
+      <div class="rounded-2xl bg-[#FFF3CD] px-5 py-4">
+        <p class="text-xs text-[#6B7280]">Da riscuotere</p>
+        <p class="text-2xl font-bold text-[#F5D547]">{formatEuro(totaleMaturate)}</p>
+      </div>
+      <div class="rounded-2xl bg-green-50 px-5 py-4">
+        <p class="text-xs text-[#6B7280]">Liquidate</p>
+        <p class="text-2xl font-bold text-green-600">{formatEuro(totaleLiquidate)}</p>
+      </div>
+      <div class="rounded-2xl bg-[#E5E7EB] px-5 py-4">
+        <p class="text-xs text-[#6B7280]">Percentuale</p>
+        <p class="text-2xl font-bold text-[#1A1A1A]">{agent?.provvigione_percentuale ?? 0}%</p>
+      </div>
+    </div>
+
     <div class="flex gap-2">
       <button
         type="button"
@@ -260,18 +379,42 @@
     {#if activeTab === 'overview'}
       <div class="grid gap-6 lg:grid-cols-3">
         <Card>
-          <h2 class="text-sm font-medium text-[#1A1A1A] mb-4">Clienti assegnati</h2>
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-medium text-[#1A1A1A]">Clienti assegnati</h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-xl"
+              onclick={() => openAddClientModal()}
+            >
+              <UserPlus class="h-4 w-4" />
+              Aggiungi
+            </Button>
+          </div>
           <div class="space-y-2 max-h-64 overflow-y-auto">
             {#each clients.slice(0, 20) as c}
               <div
-                class="flex items-center justify-between py-2 border-b border-black/5 last:border-0 cursor-pointer hover:bg-[#FFFDE7] rounded-lg px-2 -mx-2"
-                onclick={() => goto(`/clienti/${c.id}`)}
-                role="button"
-                tabindex="0"
-                onkeydown={(e) => e.key === 'Enter' && goto(`/clienti/${c.id}`)}
+                class="flex items-center justify-between py-2 border-b border-black/5 last:border-0 group rounded-lg px-2 -mx-2"
               >
-                <span class="text-sm font-medium text-[#1A1A1A]">{c.ragione_sociale ?? '—'}</span>
-                <ChevronRight class="h-4 w-4 text-[#9CA3AF]" />
+                <div
+                  class="flex-1 min-w-0 cursor-pointer hover:bg-[#FFFDE7] rounded-lg py-1 -my-1 px-1 -mx-1"
+                  onclick={() => goto(`/clienti/${c.id}`)}
+                  role="button"
+                  tabindex="0"
+                  onkeydown={(e) => e.key === 'Enter' && goto(`/clienti/${c.id}`)}
+                >
+                  <span class="text-sm font-medium text-[#1A1A1A]">{c.ragione_sociale ?? '—'}</span>
+                </div>
+                <button
+                  type="button"
+                  class="p-1.5 rounded-lg text-[#6B7280] hover:bg-red-50 hover:text-red-600 transition-colors"
+                  onclick={(e) => { e.stopPropagation(); removeClient(c.id); }}
+                  disabled={removingClientId === c.id}
+                  title="Rimuovi da questo agente"
+                  aria-label="Rimuovi cliente"
+                >
+                  <UserMinus class="h-4 w-4" />
+                </button>
               </div>
             {/each}
           </div>
@@ -421,6 +564,43 @@
       </Button>
       <Button type="submit" variant="primary" disabled={savingConfig}>
         {savingConfig ? 'Salvataggio...' : 'Salva'}
+      </Button>
+    </div>
+  </form>
+</Modal>
+
+<!-- Modal Aggiungi Cliente -->
+<Modal
+  open={addClientModalOpen}
+  title="Assegna cliente all'agente"
+  size="sm"
+  on:close={() => (addClientModalOpen = false)}
+>
+  <form onsubmit={(e) => { e.preventDefault(); assignClient(); }} class="space-y-5">
+    <div>
+      <label for="client_select" class="block text-sm font-medium text-[#1A1A1A] mb-2">
+        Seleziona cliente da assegnare
+      </label>
+      <select
+        id="client_select"
+        bind:value={selectedClientToAdd}
+        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+      >
+        <option value="">— Seleziona —</option>
+        {#each availableClients as c}
+          <option value={c.id}>{c.ragione_sociale ?? c.id}</option>
+        {/each}
+      </select>
+      {#if availableClients.length === 0 && addClientModalOpen}
+        <p class="text-xs text-[#6B7280] mt-2">Tutti i clienti sono già assegnati a questo agente.</p>
+      {/if}
+    </div>
+    <div class="flex justify-end gap-3">
+      <Button type="button" variant="ghost" onclick={() => (addClientModalOpen = false)}>
+        Annulla
+      </Button>
+      <Button type="submit" variant="primary" disabled={addingClient || !selectedClientToAdd}>
+        {addingClient ? 'Salvataggio...' : 'Assegna'}
       </Button>
     </div>
   </form>

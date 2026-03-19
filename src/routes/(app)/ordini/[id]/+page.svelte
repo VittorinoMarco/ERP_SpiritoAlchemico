@@ -9,7 +9,7 @@
     ArrowLeft,
     FileText,
     Copy,
-    ChevronRight
+    Trash2
   } from 'lucide-svelte';
   import type { Order, OrderStato, OrderItem } from '$lib/types/order';
   import { STATO_LABELS, STATO_BADGE_COLORS, STATO_STEPS, CANALE_LABELS, CANALE_BADGE_COLORS } from '$lib/types/order';
@@ -26,6 +26,8 @@
   let agents: { id: string; name?: string; email?: string }[] = [];
   let loading = true;
   let updating = false;
+  let deleting = false;
+  let statoError = '';
 
   export let data: { user?: { id?: string; role?: string } | null } = { user: null };
   $: user = data.user ?? (pb.authStore.model as { id?: string; role?: string } | null);
@@ -35,12 +37,55 @@
     ? STATO_STEPS.indexOf(order.stato as OrderStato)
     : -1;
 
+  function getItemProdottoId(item: any): string | null {
+    let id = item.prodotto ?? item.product ?? item.prodotto_id ?? item.product_id;
+    if (!id || id === '0' || id === 0) {
+      const expanded = item.expand?.prodotto ?? item.expand?.product;
+      id = expanded?.id;
+    }
+    if (!id || id === '0' || id === 0) return null;
+    return String(id);
+  }
+
+  function getItemProdottoExpand(item: any): { nome?: string; sku?: string } | undefined {
+    return item.expand?.prodotto ?? item.expand?.product;
+  }
+
   onMount(async () => {
     try {
       order = await pb.collection('orders').getOne(orderId, { expand: 'cliente,agente' });
-      items = await pb.collection('order_items').getFullList({
-        filter: `ordine = "${orderId}"`,
-        expand: 'prodotto'
+      let itemsRaw: any[] = [];
+      try {
+        itemsRaw = await pb.collection('order_items').getFullList({
+          filter: `ordine = "${orderId}"`,
+          expand: 'prodotto'
+        });
+      } catch {
+        try {
+          itemsRaw = await pb.collection('order_items').getFullList({
+            filter: `ordine = "${orderId}"`,
+            expand: 'product'
+          });
+        } catch {
+          itemsRaw = await pb.collection('order_items').getFullList({
+            filter: `ordine = "${orderId}"`
+          });
+        }
+      }
+      const productsList = await pb.collection('products').getFullList();
+      const productsById = new Map(productsList.map((p: any) => [p.id, p]));
+      items = itemsRaw.map((it) => {
+        const prodId = getItemProdottoId(it);
+        const expanded = getItemProdottoExpand(it);
+        const prod = prodId ? productsById.get(prodId) : null;
+        return {
+          ...it,
+          prodotto: prodId ?? it.prodotto ?? it.product,
+          expand: {
+            ...it.expand,
+            prodotto: expanded ?? (prod ? { nome: prod.nome, sku: prod.sku } : undefined)
+          }
+        };
       });
       if (isAdmin) {
         const usersList = await pb.collection('users').getFullList({ filter: 'ruolo = "agente"' });
@@ -74,55 +119,66 @@
 
   async function changeStato(newStato: OrderStato) {
     if (!order || updating) return;
+    statoError = '';
     const oldStato = order.stato;
     if (newStato === oldStato) return;
     const stepIdx = STATO_STEPS.indexOf(newStato);
     const oldIdx = STATO_STEPS.indexOf(oldStato as OrderStato);
     if (stepIdx < 0 || stepIdx <= oldIdx) return;
-    if (newStato === 'confermato' && oldStato === 'bozza') {
-      for (const item of items) {
-        await pb.collection('inventory_movements').create({
-          prodotto: item.prodotto,
-          tipo: 'scarico',
-          quantita: item.quantita,
-          causale: `Ordine ${order.numero_ordine}`,
-          ordine_rif: orderId,
-          utente: user?.id
-        });
-      }
-    }
-    if (newStato === 'consegnato' && order.agente) {
-      try {
-        const existing = await pb.collection('agent_commissions').getList(1, 1, {
-          filter: `ordine = "${orderId}"`
-        });
-        if (existing.totalItems === 0) {
-          const agenteUser = await pb.collection('users').getOne(order.agente);
-          const pct = (agenteUser as any).provvigione_percentuale ?? 0;
-          const totale = Number(order.totale) || 0;
-          const importo = (totale * pct) / 100;
-          if (importo > 0) {
-            await pb.collection('agent_commissions').create({
-              agente: order.agente,
-              ordine: orderId,
-              totale_ordine: totale,
-              percentuale: pct,
-              importo,
-              stato: 'maturata',
-              data_maturata: new Date().toISOString().split('T')[0]
-            });
-          }
-        }
-      } catch (e) {
-        console.error('Errore creazione provvigione:', e);
-      }
-    }
     updating = true;
     try {
-      order = await pb.collection('orders').update(orderId, { stato: newStato }) as typeof order;
+      if (newStato === 'confermato' && oldStato === 'bozza') {
+        const invalidItems = items.filter((i) => !getItemProdottoId(i));
+        if (invalidItems.length > 0) {
+          throw new Error(
+            `${invalidItems.length} riga/e senza prodotto valido. Verifica che ogni riga abbia un prodotto associato.`
+          );
+        }
+        for (const item of items) {
+          const prodId = getItemProdottoId(item);
+          if (!prodId) continue;
+          await pb.collection('inventory_movements').create({
+            prodotto: prodId,
+            tipo: 'scarico',
+            quantita: item.quantita ?? 0,
+            causale: `Ordine ${order.numero_ordine}`,
+            ordine_rif: orderId,
+            utente: user?.id
+          });
+        }
+      }
+      if (newStato === 'consegnato' && order.agente) {
+        try {
+          const existing = await pb.collection('agent_commissions').getList(1, 1, {
+            filter: `ordine = "${orderId}"`
+          });
+          if (existing.totalItems === 0) {
+            const agenteUser = await pb.collection('users').getOne(order.agente);
+            const pct = (agenteUser as any).provvigione_percentuale ?? 0;
+            const imponibile =
+              Number(order.totale_imponibile) ?? (Number(order.totale) || 0) / 1.22;
+            const importo = (imponibile * pct) / 100;
+            if (importo > 0) {
+              await pb.collection('agent_commissions').create({
+                agente: order.agente,
+                ordine: orderId,
+                totale_ordine: imponibile,
+                percentuale: pct,
+                importo,
+                stato: 'maturata',
+                data_maturata: new Date().toISOString().split('T')[0]
+              });
+            }
+          }
+        } catch (e) {
+          console.error('Errore creazione provvigione:', e);
+        }
+      }
+      await pb.collection('orders').update(orderId, { stato: newStato });
+      order = await pb.collection('orders').getOne(orderId, { expand: 'cliente,agente' }) as typeof order;
       await logActivity('stato_cambiato', `Da ${oldStato} a ${newStato}`);
-    } catch {
-      // revert?
+    } catch (e: any) {
+      statoError = e?.message ?? 'Errore durante l\'aggiornamento dello stato';
     } finally {
       updating = false;
     }
@@ -131,14 +187,16 @@
   async function generaFattura() {
     if (!order || order.stato === 'bozza' || order.stato === 'annullato') return;
     try {
+      const imponibile = Number(order.totale_imponibile) ?? Number(order.totale) ?? 0;
+      const ivaImporto = Number(order.iva) ?? 0;
       const inv = await pb.collection('invoices').create({
         numero_fattura: `FAT-${Date.now()}`,
         ordine: orderId,
         cliente: order.cliente,
         data_emissione: new Date().toISOString().split('T')[0],
         data_scadenza: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        totale_imponibile: Number(order.totale) || 0,
-        iva: 0,
+        totale_imponibile: imponibile,
+        iva: ivaImporto,
         totale: Number(order.totale) || 0,
         stato: 'emessa'
       });
@@ -160,12 +218,17 @@
         stato: 'bozza',
         canale: order.canale,
         totale: order.totale,
+        totale_imponibile: order.totale_imponibile,
+        iva: order.iva,
+        iva_percentuale: order.iva_percentuale,
         note: order.note ? `(Duplicato da ${order.numero_ordine}) ${order.note}` : `Duplicato da ${order.numero_ordine}`
       });
       for (const item of items) {
+        const prodId = getItemProdottoId(item);
+        if (!prodId) continue;
         await pb.collection('order_items').create({
           ordine: newOrder.id,
-          prodotto: item.prodotto,
+          prodotto: prodId,
           quantita: item.quantita,
           prezzo_unitario: item.prezzo_unitario,
           sconto_percentuale: item.sconto_percentuale ?? 0,
@@ -203,6 +266,43 @@
     const idx = STATO_STEPS.indexOf(stato);
     const currentIdx = STATO_STEPS.indexOf(order.stato as OrderStato);
     return idx === currentIdx + 1;
+  }
+
+  function canChangeTo(stato: OrderStato): boolean {
+    if (!order || order.stato === 'annullato') return false;
+    return order.stato !== stato;
+  }
+
+  async function handleDelete() {
+    if (!order || deleting || !isAdmin) return;
+    if (!confirm(`Eliminare l'ordine ${order.numero_ordine}? Verranno eliminate anche tutte le righe.`)) return;
+    deleting = true;
+    try {
+      for (const item of items) {
+        await pb.collection('order_items').delete(item.id);
+      }
+      await pb.collection('orders').delete(orderId);
+      goto('/ordini');
+    } catch (e: any) {
+      statoError = e?.message ?? 'Errore durante l\'eliminazione';
+    } finally {
+      deleting = false;
+    }
+  }
+
+  async function handleAnnulla() {
+    if (!order || updating) return;
+    if (!confirm(`Annullare l'ordine ${order.numero_ordine}?`)) return;
+    statoError = '';
+    updating = true;
+    try {
+      order = await pb.collection('orders').update(orderId, { stato: 'annullato' }) as typeof order;
+      await logActivity('stato_cambiato', `Annullato`);
+    } catch (e: any) {
+      statoError = e?.message ?? 'Errore';
+    } finally {
+      updating = false;
+    }
   }
 </script>
 
@@ -314,6 +414,16 @@
             <dt class="text-sm text-[#6B7280]">Agente</dt>
             <dd class="text-sm font-medium text-[#1A1A1A]">{agentName(order.expand?.agente)}</dd>
           </div>
+          {#if order.totale_imponibile != null || order.iva != null}
+            <div class="flex justify-between sm:block">
+              <dt class="text-sm text-[#6B7280]">Imponibile</dt>
+              <dd class="text-sm font-medium text-[#1A1A1A]">{formatEuro(Number(order.totale_imponibile) || 0)}</dd>
+            </div>
+            <div class="flex justify-between sm:block">
+              <dt class="text-sm text-[#6B7280]">IVA {order.iva_percentuale != null ? `(${order.iva_percentuale}%)` : ''}</dt>
+              <dd class="text-sm font-medium text-[#1A1A1A]">{formatEuro(Number(order.iva) || 0)}</dd>
+            </div>
+          {/if}
           <div class="flex justify-between sm:block">
             <dt class="text-sm text-[#6B7280]">Totale</dt>
             <dd class="text-lg font-bold text-[#1A1A1A]">{formatEuro(Number(order.totale) || 0)}</dd>
@@ -329,6 +439,9 @@
 
       <!-- Azioni -->
       <Card>
+        {#if statoError}
+          <p class="mb-3 text-sm text-rose-600">{statoError}</p>
+        {/if}
         <div class="flex flex-col gap-3">
           {#if order.stato !== 'bozza' && order.stato !== 'annullato'}
             <Button
@@ -372,6 +485,27 @@
               Segna Consegnato
             </Button>
           {/if}
+          {#if order.stato !== 'annullato'}
+            <Button
+              variant="ghost"
+              className="rounded-2xl w-full text-amber-600 hover:bg-amber-50"
+              disabled={updating}
+              onclick={handleAnnulla}
+            >
+              Annulla ordine
+            </Button>
+          {/if}
+          {#if isAdmin}
+            <Button
+              variant="ghost"
+              className="rounded-2xl w-full text-red-600 hover:bg-red-50"
+              disabled={deleting}
+              onclick={handleDelete}
+            >
+              <Trash2 class="h-4 w-4" />
+              Elimina ordine
+            </Button>
+          {/if}
         </div>
       </Card>
     </div>
@@ -394,9 +528,9 @@
             {#each items as item}
               <tr class="border-b border-black/5 last:border-0 hover:bg-[#FFFDE7]">
                 <td class="px-4 py-3 font-medium text-[#1A1A1A]">
-                  {item.expand?.prodotto?.nome ?? '—'} ({item.expand?.prodotto?.sku ?? '—'})
+                  {getItemProdottoExpand(item)?.nome ?? '—'} ({getItemProdottoExpand(item)?.sku ?? '—'})
                 </td>
-                <td class="px-4 py-3 text-right text-[#6B7280]">{item.quantita}</td>
+                <td class="px-4 py-3 text-right text-[#6B7280]">{item.quantita ?? '—'}</td>
                 <td class="px-4 py-3 text-right text-[#6B7280]">{formatEuro(item.prezzo_unitario)}</td>
                 <td class="px-4 py-3 text-right text-[#6B7280]">{item.sconto_percentuale ?? 0}%</td>
                 <td class="px-4 py-3 text-right font-medium text-[#1A1A1A]">{formatEuro(item.totale_riga)}</td>

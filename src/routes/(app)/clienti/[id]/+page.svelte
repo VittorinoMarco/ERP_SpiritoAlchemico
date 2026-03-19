@@ -9,7 +9,7 @@
   import ClientModal from '$lib/components/clients/ClientModal.svelte';
   import type { Client, ClientTipo } from '$lib/types/client';
   import { TIPO_LABELS, TIPO_BADGE_COLORS } from '$lib/types/client';
-  import { ArrowLeft, Edit, MapPin, Receipt, FileText } from 'lucide-svelte';
+  import { ArrowLeft, Edit, MapPin, Receipt, FileText, Trash2 } from 'lucide-svelte';
 
   const clientId = $page.params.id;
 
@@ -18,6 +18,7 @@
   let agents: { id: string; name?: string; email?: string }[] = [];
   let loading = true;
   let modalOpen = false;
+  let deleting = false;
   export let data: { user?: { id?: string; role?: string } | null } = { user: null };
   $: user = data.user ?? (pb.authStore.model as { id?: string; role?: string } | null);
   $: isAdmin = (user?.role || (user as any)?.ruolo) === 'admin';
@@ -85,6 +86,24 @@
       // ignore
     }
   }
+
+  async function handleDelete() {
+    if (!client || !isAdmin || deleting) return;
+    const msg =
+      orders.length > 0
+        ? `Il cliente "${client.ragione_sociale}" ha ${orders.length} ordini associati. Eliminare comunque?`
+        : `Eliminare il cliente "${client.ragione_sociale}"?`;
+    if (!confirm(msg)) return;
+    deleting = true;
+    try {
+      await pb.collection('clients').delete(clientId);
+      goto('/clienti');
+    } catch (e) {
+      alert((e as Error)?.message ?? 'Errore durante l\'eliminazione');
+    } finally {
+      deleting = false;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -92,18 +111,32 @@
 </svelte:head>
 
 <div class="space-y-6">
-  <div class="flex items-center gap-4">
-    <button
-      type="button"
-      class="p-2 rounded-2xl text-[#6B7280] hover:bg-black/5 transition-colors"
-      onclick={() => goto('/clienti')}
-      aria-label="Indietro"
-    >
-      <ArrowLeft class="h-5 w-5" />
-    </button>
-    <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">
-      {client?.ragione_sociale ?? 'Cliente'}
-    </h1>
+  <div class="flex items-center justify-between gap-4">
+    <div class="flex items-center gap-4">
+      <button
+        type="button"
+        class="p-2 rounded-2xl text-[#6B7280] hover:bg-black/5 transition-colors"
+        onclick={() => goto('/clienti')}
+        aria-label="Indietro"
+      >
+        <ArrowLeft class="h-5 w-5" />
+      </button>
+      <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">
+        {client?.ragione_sociale ?? 'Cliente'}
+      </h1>
+    </div>
+    {#if isAdmin && client}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="rounded-2xl text-red-600 hover:bg-red-50 hover:text-red-700"
+        onclick={handleDelete}
+        disabled={deleting}
+      >
+        <Trash2 class="h-4 w-4" />
+        Elimina
+      </Button>
+    {/if}
   </div>
 
   {#if loading}

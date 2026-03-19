@@ -1,5 +1,41 @@
 # PocketBase Schema
 
+## Collection `orders`
+
+Per supportare l'IVA sugli ordini, aggiungi questi campi se mancano:
+
+| Campo | Tipo | Note |
+|-------|------|------|
+| **totale_imponibile** | number | Imponibile (senza IVA) |
+| **iva** | number | Importo IVA |
+| **iva_percentuale** | number | Opzionale – aliquota usata (es. 22) |
+
+1. PocketBase Admin → Collections → orders
+2. Aggiungi **totale_imponibile** (number, opzionale)
+3. Aggiungi **iva** (number, opzionale)
+4. Opzionale: **iva_percentuale** (number)
+
+### Collection `order_items`
+
+L'app si aspetta un campo relation verso **products**. Il nome può essere `prodotto` o `product`.
+
+| Campo | Tipo | Note |
+|-------|------|------|
+| ordine | relation | → orders |
+| **prodotto** (o **product**) | relation | → products, obbligatorio |
+| quantita | number | |
+| prezzo_unitario | number | |
+| sconto_percentuale | number | opzionale |
+| totale_riga | number | |
+
+**Se le righe mostrano "—" e Conferma ordine dà errore:**
+1. PocketBase Admin → Collections → **order_items** → Schema
+2. Verifica che esista un campo relation verso `products` (nome `prodotto` o `product`)
+3. Verifica che ogni record abbia un ID valido in quel campo (non `0` o vuoto)
+4. Se i record sono corrotti, modificali manualmente o ricrea l'ordine da "Nuovo ordine"
+
+---
+
 ## Collection `invoices`
 
 Per il modulo Fatture, assicurati che la collection `invoices` abbia i seguenti campi:
@@ -54,6 +90,14 @@ Crea la collection per le provvigioni:
 
 1. PocketBase Admin → Collections → New collection: **agent_commissions**
 2. Aggiungi i campi come da tabella sopra
+
+### Se ricevi 400 su agent_commissions con expand/sort
+
+L'app usa `expand=agente,ordine` e `sort=-data_maturata`. Un 400 può dipendere da:
+
+- **Nomi campi**: `agente` e `ordine` devono essere esattamente così (relation). `data_maturata` deve esistere (date).
+- **API Rules**: Le collection `users` e `orders` devono permettere la lettura dei record espansi (List/View) all’utente loggato.
+- **Fallback**: L’app gestisce il fallimento e riprova senza expand/sort; gli agenti e le provvigioni vengono comunque mostrati (nomi arricchiti lato client).
 
 ---
 
