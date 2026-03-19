@@ -14,6 +14,7 @@
     id: string;
     nome?: string;
     cognome?: string;
+    name?: string;
     email?: string;
     provvigione_percentuale?: number;
     nClienti: number;
@@ -40,8 +41,8 @@
     .reduce((s, c) => s + (c.importo ?? 0), 0);
 
   function agentName(a: AgentWithStats): string {
-    if (a.nome) return [a.nome, a.cognome].filter(Boolean).join(' ');
-    return a.email ?? '—';
+    const name = (a as any).name ?? (a.nome ? [a.nome, a.cognome].filter(Boolean).join(' ') : null);
+    return name ?? a.email ?? '—';
   }
 
   function agentLabel(ag: { nome?: string; cognome?: string; email?: string } | undefined): string {
@@ -136,6 +137,7 @@
           id: u.id,
           nome: u.nome,
           cognome: u.cognome,
+          name: u.name ?? (u.nome ? [u.nome, u.cognome].filter(Boolean).join(' ') : undefined),
           email: u.email,
           provvigione_percentuale: u.provvigione_percentuale ?? 0,
           nClienti: 0,
@@ -153,7 +155,7 @@
       }
 
       for (const o of ordersList as any[]) {
-        if (o.agente && agentsMap.has(o.agente) && o.stato === 'consegnato') {
+        if (o.agente && agentsMap.has(o.agente) && (o.stato === 'consegnato' || o.stato === 'completato')) {
           const a = agentsMap.get(o.agente)!;
           const d = o.data_ordine ?? '';
           if (d >= meseStart && d <= meseEnd) {
@@ -246,12 +248,9 @@
   {:else if activeTab === 'agenti'}
     <section class="page-grid">
       {#each agents as agent (agent.id)}
+        <a href="/agenti/{agent.id}" class="block">
         <Card
           className="cursor-pointer hover:shadow-md transition-shadow"
-          onclick={() => goto(`/agenti/${agent.id}`)}
-          role="button"
-          tabindex="0"
-          onkeydown={(e) => e.key === 'Enter' && goto(`/agenti/${agent.id}`)}
         >
           <div class="flex items-start justify-between">
             <div>
@@ -299,6 +298,7 @@
             </div>
           </div>
         </Card>
+        </a>
       {/each}
     </section>
 

@@ -282,7 +282,7 @@
                   <td class="px-3 py-2 text-[#6B7280]">{formatDate(o.data_ordine)}</td>
                   <td class="px-3 py-2">
                     <span
-                      class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium {o.stato === 'consegnato'
+                      class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium {(o.stato === 'consegnato' || o.stato === 'completato')
                         ? 'bg-green-100 text-green-800'
                         : o.stato === 'annullato'
                           ? 'bg-gray-100 text-gray-600'

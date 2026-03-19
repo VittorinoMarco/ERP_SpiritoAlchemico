@@ -54,8 +54,8 @@
 
   function agentName(): string {
     if (!agent) return '—';
-    if (agent.nome) return [agent.nome, agent.cognome].filter(Boolean).join(' ');
-    return agent.email ?? '—';
+    const name = (agent as any).name ?? (agent.nome ? [agent.nome, agent.cognome].filter(Boolean).join(' ') : null);
+    return name ?? agent.email ?? '—';
   }
 
   function formatDate(s: string | null | undefined): string {
@@ -84,7 +84,7 @@
   $: performanceMensile = (() => {
     const byMonth: Record<string, number> = {};
     for (const o of orders) {
-      if (o.stato !== 'consegnato') continue;
+      if (o.stato !== 'consegnato' && o.stato !== 'completato') continue;
       const d = o.data_ordine ?? '';
       if (!d) continue;
       const key = d.slice(0, 7);

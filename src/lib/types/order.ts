@@ -1,6 +1,6 @@
 import type { RecordModel } from 'pocketbase';
 
-export type OrderStato = 'bozza' | 'confermato' | 'spedito' | 'consegnato' | 'annullato';
+export type OrderStato = 'bozza' | 'confermato' | 'spedito' | 'consegnato' | 'completato' | 'annullato';
 export type OrderCanale = 'horeca' | 'ecommerce' | 'diretto';
 
 export interface Order extends RecordModel {
@@ -32,6 +32,7 @@ export const STATO_LABELS: Record<OrderStato, string> = {
   confermato: 'Confermato',
   spedito: 'Spedito',
   consegnato: 'Consegnato',
+  completato: 'Consegnato',
   annullato: 'Annullato'
 };
 
@@ -40,6 +41,7 @@ export const STATO_BADGE_COLORS: Record<OrderStato, string> = {
   confermato: 'bg-sky-100 text-sky-800',
   spedito: 'bg-indigo-100 text-indigo-800',
   consegnato: 'bg-green-100 text-green-800',
+  completato: 'bg-green-100 text-green-800',
   annullato: 'bg-rose-100 text-rose-800'
 };
 
@@ -56,3 +58,5 @@ export const CANALE_BADGE_COLORS: Record<OrderCanale, string> = {
 };
 
 export const STATO_STEPS: OrderStato[] = ['bozza', 'confermato', 'spedito', 'consegnato'];
+// completato è equivalente a consegnato (usato da PocketBase)
+export const STATO_CONSEGNATO_VALUES = ['consegnato', 'completato'] as const;

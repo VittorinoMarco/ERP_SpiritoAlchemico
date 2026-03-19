@@ -34,7 +34,7 @@
   $: isAdmin = (user?.role || (user as any)?.ruolo) === 'admin';
 
   $: currentStepIndex = order
-    ? STATO_STEPS.indexOf(order.stato as OrderStato)
+    ? (order.stato === 'completato' ? STATO_STEPS.indexOf('consegnato') : STATO_STEPS.indexOf(order.stato as OrderStato))
     : -1;
 
   function getItemProdottoId(item: any): string | null {
@@ -94,6 +94,34 @@
           name: u.nome ? [u.nome, u.cognome].filter(Boolean).join(' ') : u.email,
           email: u.email
         }));
+      }
+      // Backfill provvigione: se ordine è consegnato/completato con agente ma senza commissione, creala
+      if (order?.agente && (order.stato === 'consegnato' || order.stato === 'completato')) {
+        try {
+          const existing = await pb.collection('agent_commissions').getList(1, 1, {
+            filter: `ordine = "${orderId}"`
+          });
+          if (existing.totalItems === 0) {
+            const agenteUser = await pb.collection('users').getOne(order.agente);
+            const pct = (agenteUser as any).provvigione_percentuale ?? 0;
+            const imponibile =
+              Number(order.totale_imponibile) ?? (Number(order.totale) || 0) / 1.22;
+            const importo = (imponibile * pct) / 100;
+            if (importo > 0) {
+              await pb.collection('agent_commissions').create({
+                agente: order.agente,
+                ordine: orderId,
+                totale_ordine: imponibile,
+                percentuale: pct,
+                importo,
+                stato: 'maturata',
+                data_maturata: new Date().toISOString().split('T')[0]
+              });
+            }
+          }
+        } catch (e) {
+          console.error('Errore backfill provvigione:', e);
+        }
       }
     } catch {
       order = null;
@@ -174,7 +202,22 @@
           console.error('Errore creazione provvigione:', e);
         }
       }
-      await pb.collection('orders').update(orderId, { stato: newStato });
+      let statoToSave = newStato;
+      try {
+        await pb.collection('orders').update(orderId, { stato: statoToSave });
+      } catch (e: any) {
+        // Se PocketBase ha "completato" invece di "consegnato", riprova
+        if (newStato === 'consegnato' && e?.status === 400) {
+          try {
+            await pb.collection('orders').update(orderId, { stato: 'completato' });
+            statoToSave = 'completato';
+          } catch {
+            throw e;
+          }
+        } else {
+          throw e;
+        }
+      }
       order = await pb.collection('orders').getOne(orderId, { expand: 'cliente,agente' }) as typeof order;
       await logActivity('stato_cambiato', `Da ${oldStato} a ${newStato}`);
     } catch (e: any) {
@@ -261,10 +304,15 @@
     return ag.email ?? '—';
   }
 
+  function currentStepIndexForStato(s: string): number {
+    if (s === 'completato') return STATO_STEPS.indexOf('consegnato');
+    return STATO_STEPS.indexOf(s as OrderStato);
+  }
+
   function canAdvanceTo(stato: OrderStato): boolean {
     if (!order || order.stato === 'annullato') return false;
     const idx = STATO_STEPS.indexOf(stato);
-    const currentIdx = STATO_STEPS.indexOf(order.stato as OrderStato);
+    const currentIdx = currentStepIndexForStato(order.stato);
     return idx === currentIdx + 1;
   }
 
@@ -346,9 +394,9 @@
       <div class="flex items-center max-w-2xl">
         {#each STATO_STEPS as stato, i}
           {@const stepIdx = STATO_STEPS.indexOf(stato as OrderStato)}
-          {@const currentIdx = STATO_STEPS.indexOf(order.stato as OrderStato)}
+          {@const currentIdx = currentStepIndexForStato(order.stato)}
           {@const isCompleted = currentIdx > stepIdx}
-          {@const isActive = order.stato === stato}
+          {@const isActive = order.stato === stato || (order.stato === 'completato' && stato === 'consegnato')}
           {@const isNext = canAdvanceTo(stato as OrderStato)}
           <div class="flex items-center flex-1">
             <button
