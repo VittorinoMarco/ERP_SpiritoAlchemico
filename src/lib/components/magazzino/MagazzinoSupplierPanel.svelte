@@ -6,7 +6,11 @@
   import { registraAcquistoFornitoreConUscita } from '$lib/utils/supplierExpenseApply';
   import { extractTextFromPdfFile } from '$lib/utils/pdfText';
   import { parseSupplierInvoiceText, type SupplierInvoiceLineParsed } from '$lib/utils/supplierInvoiceAi';
-  import { firstMatchProductId, bestProductCandidates } from '$lib/utils/supplierProductMatch';
+  import {
+    firstMatchProductId,
+    bestProductCandidates,
+    isProductSelectableForInvoice
+  } from '$lib/utils/supplierProductMatch';
   import type { Product } from '$lib/types/product';
   import { Truck, FileUp, Loader2 } from 'lucide-svelte';
 
@@ -38,8 +42,28 @@
   let fatturaImponibile = '';
   let fatturaIva = '';
   let fatturaSaving = false;
+  /** Fallback se il parent non ha ancora `products` (es. fallimento parziale loadData prima del fix). */
+  let productsFallback: Product[] = [];
 
   const today = () => new Date().toISOString().split('T')[0];
+
+  /** Catalogo effettivo per match e select (prop o fetch locale). */
+  $: catalogProducts = products.length > 0 ? products : productsFallback;
+
+  /** Restituisce sempre l’elenco da usare per match/select (evita stale state dopo await). */
+  async function resolveCatalogForInvoice(): Promise<Product[]> {
+    if (products.length > 0) {
+      productsFallback = [];
+      return products;
+    }
+    try {
+      productsFallback = await pb.collection('products').getFullList<Product>();
+      return productsFallback;
+    } catch {
+      productsFallback = [];
+      return [];
+    }
+  }
 
   function addAcquistoLine() {
     acquistoLines = [...acquistoLines, { prodottoId: '', qty: '' }];
@@ -143,12 +167,13 @@
     }
     fatturaParsing = true;
     try {
+      const cat = await resolveCatalogForInvoice();
       const p = await parseSupplierInvoiceText(key, text);
       fatturaParsedNumero = p.numero_documento ?? '';
       fatturaParsedData = p.data_documento ?? today();
       fatturaRows = p.righe.map((r) => ({
         ...r,
-        prodottoId: firstMatchProductId(r.descrizione, products)
+        prodottoId: firstMatchProductId(r.descrizione, cat)
       }));
       const sumRighe = fatturaRows.reduce((s, r) => s + (Number(r.imponibile_riga) || 0), 0);
       const imp = p.imponibile_totale ?? sumRighe;
@@ -212,10 +237,14 @@
   }
 
   function productsForInvoiceRow(desc: string): Product[] {
-    const sug = bestProductCandidates(desc, products, 12);
+    const list = catalogProducts;
+    if (list.length === 0) return [];
+    const sug = bestProductCandidates(desc, list, 12);
     const sugIds = new Set(sug.map((p) => p.id));
-    const rest = products.filter((p) => p.attivo !== false && !sugIds.has(p.id));
-    return [...sug, ...rest];
+    const rest = list.filter((p) => isProductSelectableForInvoice(p) && !sugIds.has(p.id));
+    const merged = [...sug, ...rest];
+    if (merged.length === 0) return [...list];
+    return merged;
   }
 </script>
 
@@ -327,6 +356,11 @@
       L’AI raggruppa <strong>prodotto + accisa + contrassegni</strong> per calcolare il prezzo imponibile unitario e la riga.
       Verifica sempre i totali prima di applicare.
     </p>
+    <p class="text-xs text-[#6B7280] mb-4 rounded-xl bg-[#FFFDE7] border border-[#F5D547]/40 px-3 py-2">
+      <strong>PDF “diretto” al modello:</strong> servirebbe inviare il file come immagini (vision API) o tramite
+      <em>Files</em> + assistente: oggi usiamo il <strong>testo estratto</strong> dal PDF (più leggero e economico). Se il
+      PDF ha colonne confuse, incolla il testo dalla fattura o correggi la <strong>Qtà</strong> nella schermata di revisione.
+    </p>
     {#if fatturaErr}
       <p class="text-sm text-rose-600 mb-3">{fatturaErr}</p>
     {/if}
@@ -378,6 +412,12 @@
     {#if fatturaErr}
       <p class="text-sm text-rose-600 mb-3">{fatturaErr}</p>
     {/if}
+    {#if catalogProducts.length === 0}
+      <p class="text-sm text-amber-800 mb-3 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">
+        Nessun prodotto in anagrafica caricato: controlla la connessione e i permessi PocketBase su <code class="text-xs">products</code>.
+        Puoi comunque chiudere e riaprire dopo aver ricaricato la pagina Magazzino.
+      </p>
+    {/if}
     <div class="grid sm:grid-cols-2 gap-3 mb-4">
       <div>
         <label class="block text-xs font-medium text-[#6B7280] mb-1" for="fattura-imp">Imponibile totale (€)</label>
@@ -402,7 +442,7 @@
         </thead>
         <tbody>
           {#each fatturaRows as row}
-            {@const pSel = products.find((p) => p.id === row.prodottoId)}
+            {@const pSel = catalogProducts.find((p) => p.id === row.prodottoId)}
             {@const listino = pSel ? Number(pSel.prezzo_listino) || 0 : 0}
             {@const cost = Number(row.prezzo_imponibile_unita) || 0}
             {@const marginePct =
@@ -414,7 +454,32 @@
                   Imponibile unitario = liquido + accisa + contrassegni (per bottiglia)
                 </p>
               </td>
-              <td class="px-2 py-2 whitespace-nowrap font-medium">{row.quantita}</td>
+              <td class="px-2 py-2 whitespace-nowrap">
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  class="w-20 rounded-lg border border-black/10 px-1.5 py-1 text-xs font-medium"
+                  value={row.quantita}
+                  title="Correggi la Qtà se l’AI ha confuso con l’IVA"
+                  oninput={(e) => {
+                    const v = parseInt(e.currentTarget.value, 10);
+                    if (!Number.isFinite(v) || v < 1) return;
+                    row.quantita = v;
+                    const pu = Number(row.prezzo_imponibile_unita) || 0;
+                    if (pu > 0) row.imponibile_riga = Math.round(v * pu * 100) / 100;
+                    fatturaRows = [...fatturaRows];
+                    const sum = fatturaRows.reduce((s, r) => s + (Number(r.imponibile_riga) || 0), 0);
+                    if (sum > 0) {
+                      const prevImp = parseFloat(String(fatturaImponibile).replace(',', '.')) || 0;
+                      const prevIva = parseFloat(String(fatturaIva).replace(',', '.')) || 0;
+                      const rate = prevImp > 0 ? prevIva / prevImp : 0.22;
+                      fatturaImponibile = String(Math.round(sum * 100) / 100);
+                      fatturaIva = String(Math.round(sum * rate * 100) / 100);
+                    }
+                  }}
+                />
+              </td>
               <td class="px-2 py-2 whitespace-nowrap">{formatEuro(row.prezzo_imponibile_unita)}</td>
               <td class="px-2 py-2 whitespace-nowrap">{formatEuro(row.imponibile_riga)}</td>
               <td class="px-2 py-2 text-xs">

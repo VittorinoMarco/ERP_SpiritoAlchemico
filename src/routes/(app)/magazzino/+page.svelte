@@ -175,14 +175,17 @@
 
   async function loadData() {
     try {
+      /** Ogni fetch isolato: se fallisce ordini/bozze, i prodotti restano comunque caricati (select fattura fornitore). */
       const [invList, movList, prodList, resMap] = await Promise.all([
-        pb.collection('inventory').getFullList({ expand: 'prodotto' }),
-        pb.collection('inventory_movements').getFullList({
-          expand: 'prodotto,utente',
-          sort: '-data_movimento'
-        }),
-        pb.collection('products').getFullList<Product>(),
-        getQtyReservedByDraftOrders(pb)
+        pb.collection('inventory').getFullList({ expand: 'prodotto' }).catch(() => []),
+        pb.collection('inventory_movements')
+          .getFullList({
+            expand: 'prodotto,utente',
+            sort: '-data_movimento'
+          })
+          .catch(() => []),
+        pb.collection('products').getFullList<Product>().catch(() => []),
+        getQtyReservedByDraftOrders(pb).catch(() => new Map<string, number>())
       ]);
       inventory = invList as typeof inventory;
       movements = movList as typeof movements;

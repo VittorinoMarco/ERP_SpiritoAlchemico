@@ -1,5 +1,12 @@
 import type { Product } from '$lib/types/product';
 
+/** PocketBase può restituire attivo come bool, 0/1 o stringa. */
+export function isProductSelectableForInvoice(p: Product): boolean {
+  const a = (p as unknown as { attivo?: unknown }).attivo;
+  if (a === false || a === 0 || a === '0' || a === 'false') return false;
+  return true;
+}
+
 function norm(s: string): string {
   return s
     .toLowerCase()
@@ -13,7 +20,7 @@ export function bestProductCandidates(desc: string, products: Product[], limit =
   if (!d) return [];
 
   const scored = products
-    .filter((p) => p.attivo !== false)
+    .filter((p) => isProductSelectableForInvoice(p))
     .map((p) => {
       const nome = norm(p.nome || '');
       const sku = norm(p.sku || '');
