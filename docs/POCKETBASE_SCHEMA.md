@@ -101,6 +101,100 @@ L'app usa `expand=agente,ordine` e `sort=-data_maturata`. Un 400 può dipendere 
 
 ---
 
+## Collection `expenses` (Uscite / note spese)
+
+Registra le **uscite** con tipo temporale, **imponibile** (campo `importo`), **IVA** separata, allegato opzionale e collegamento al magazzino per evitare doppia contabilità.
+
+### Campi
+
+| Campo | Tipo | Obbligatorio | Note |
+|-------|------|--------------|------|
+| **tipo** | select | sì | Valori esatti: `immediata`, `programmata`, `futura` |
+| **data_spesa** | date | sì | Data di competenza o scadenza prevista (`YYYY-MM-DD`) |
+| **importo** | number | sì | **Imponibile** totale (senza IVA), in euro (≥ 0) |
+| **iva_importo** | number | no | Importo IVA in euro (es. totale IVA a 22% dalla fattura fornitore) |
+| **origine** | select | no | `manuale`, `acquisto_magazzino`, `fattura_fornitore` — impostato dall’app quando il carico nasce da Magazzino |
+| **numero_documento** | text | no | Es. `P043/2026`, ordine di acquisto |
+| **movimenti_collegati** | json | no | Array di ID stringa: `inventory_movements` generati insieme a questa uscita (anti doppio) |
+| descrizione | text | no | Es. fornitore o voce di costo |
+| categoria | text | no | Es. Utenze, Marketing, **Magazzino / Fornitore** |
+| note | text | no | Note libere |
+| **allegato** | file | no | Un solo file: PDF o immagine (scontrino/fattura). Max ~5 MB consigliati |
+| **completata** | bool | no | Default `false`. Per `programmata` / `futura`: segna quando è stata pagata/sostenuta. Le **immediate** in app sono sempre considerate registrate |
+| **creato_da** | relation → `users` | no | Opzionale: utente che ha creato la riga (l’app lo invia in creazione) |
+
+### Fattura fornitore (liquido + accise + contrassegni)
+
+Su fatture tipo **Gruppo Alchemico** o simili, ogni SKU ha righe separate (merce, **Accisa**, **Contrassegni**). L’**imponibile unitario** del prodotto è la somma per bottiglia delle tre voci; l’**imponibile riga** = quella somma × quantità. L’**IVA** (es. 22%) è sul totale imponibile documento. L’app (pagina Magazzino → **Fattura fornitore**) usa l’AI su testo estratto dal PDF per ricostruire le righe; **verifica sempre** totali e abbinamento prodotti anagrafica.
+
+### Collection `inventory_movements` — campo opzionale
+
+| Campo | Tipo | Note |
+|-------|------|------|
+| **expense_id** | relation → `expenses` | Opzionale. Se presente, il movimento è parte dell’uscita collegata (carico da acquisto/fornitore). |
+
+Se il campo non esiste, l’app funziona comunque usando solo `movimenti_collegati` sulla spesa.
+
+### Creazione in PocketBase
+
+1. Admin → **Collections** → **New collection** → nome: **`expenses`** (type: Base).
+2. Aggiungi i campi come in tabella (per **tipo** crea le 3 opzioni select senza spazi extra).
+3. **API Rules** (esempio solo utenti autenticati admin — adatta al tuo schema `ruolo`):
+
+   - **List / Search**: `@request.auth.id != "" && (@request.auth.ruolo = "admin" || @request.auth.role = "admin")`
+   - **View**: stessa condizione
+   - **Create**: stessa condizione
+   - **Update**: stessa condizione
+   - **Delete**: stessa condizione  
+
+   Se non usi `ruolo` sul record auth, puoi usare temporaneamente `@request.auth.id != ""` e restringere in seguito.
+
+4. Sul campo **allegato**: in **Options** attiva “**Only for admins**” solo se vuoi limitare chi scarica il file; altrimenti lascia visibile agli utenti che passano le View rules.
+
+### Indice / performance
+
+Opzionale: indice su `data_spesa` e `tipo` per liste filtrate.
+
+---
+
+## Collection `ai_chat_sessions` (Assistente AI)
+
+Lo storico chat **/assistente** è salvato su PocketBase (non più in localStorage).
+
+### Campi
+
+| Campo | Tipo | Obbligatorio | Note |
+|-------|------|--------------|------|
+| **utente** | relation | sì | → `users` (proprietario della sessione) |
+| **titolo** | text | sì | Es. prima domanda troncata o «Nuova chat» |
+| **messaggi** | json | sì | Array: `[{ "role": "user" \| "assistant", "content": "..." }]` |
+
+Abilita **Created / Updated** sulla collection per ordinare per `-updated` (l’app usa `sort: '-updated'`).
+
+### Creazione
+
+1. Admin → **Collections** → **New collection** → nome esatto: **`ai_chat_sessions`**
+2. Aggiungi i campi come sopra (`messaggi` tipo **JSON**).
+3. **API Rules** (ogni utente solo le proprie sessioni):
+
+```
+List/Search: @request.auth.id != "" && utente = @request.auth.id
+View:        @request.auth.id != "" && utente = @request.auth.id
+Create:      @request.auth.id != "" && utente = @request.auth.id
+Update:      @request.auth.id != "" && utente = @request.auth.id
+Delete:      @request.auth.id != "" && utente = @request.auth.id
+```
+
+4. In **Create**, se PocketBase non permette di impostare `utente` dal client, usa una regola **Create** del tipo:  
+   `@request.auth.id != ""`  
+   e un **hook** o campo **default** — in alternativa l’app invia sempre `utente: id` del modello auth; la rule `utente = @request.auth.id` obbliga che coincida.
+
+### Migrazione da browser
+
+Le vecchie chat in **localStorage** (chiave `erp_spirito_assistant_sessions_v1`) non vengono importate automaticamente: puoi ignorarle o copiare a mano.
+
+---
+
 ## Collection `activity_log`
 
 Per notifiche e registro attività:

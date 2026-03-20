@@ -16,6 +16,7 @@
     ImageOff,
     Search
   } from 'lucide-svelte';
+  import MagazzinoSupplierPanel from '$lib/components/magazzino/MagazzinoSupplierPanel.svelte';
   import type { Inventory, InventoryMovement, MovementTipo } from '$lib/types/inventory';
   import { MOVIMENTO_LABELS, MOVIMENTO_COLORS } from '$lib/types/inventory';
   import type { Product } from '$lib/types/product';
@@ -457,15 +458,18 @@
             <input type="date" bind:value={filterMovFrom} class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm" />
             <input type="date" bind:value={filterMovTo} class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm" />
           </div>
-          <Button
-            variant="primary"
-            size="sm"
-            className="rounded-2xl !bg-[#1A1A1A]"
-            onclick={() => (modalOpen = true)}
-          >
-            <Plus class="h-4 w-4" />
-            Nuovo Movimento
-          </Button>
+          <div class="flex flex-wrap items-center gap-2 justify-end">
+            <MagazzinoSupplierPanel {products} onApplied={loadData} />
+            <Button
+              variant="primary"
+              size="sm"
+              className="rounded-2xl !bg-[#1A1A1A]"
+              onclick={() => (modalOpen = true)}
+            >
+              <Plus class="h-4 w-4" />
+              Nuovo Movimento
+            </Button>
+          </div>
         </div>
         <div class="space-y-1">
           {#each filteredMovimenti.slice(0, 50) as m (m.id)}

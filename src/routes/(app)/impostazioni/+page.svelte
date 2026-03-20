@@ -75,11 +75,12 @@
     <Card>
       <h2 class="text-sm font-medium text-[#1A1A1A] mb-4 flex items-center gap-2">
         <Key class="h-4 w-4" />
-        API OpenAI (ricerca AI)
+        API OpenAI (ricerca + Assistente)
       </h2>
       <p class="text-sm text-[#6B7280] mb-4">
-        Configura la chiave API OpenAI per abilitare la ricerca in linguaggio naturale (es. "ordini di Bar Roma", "prodotti sotto scorta").
-        Se non configurata, viene usata la ricerca testuale standard.
+        Stessa chiave per la <strong>ricerca</strong> (⌘K), l’<strong>Assistente AI</strong> (storico chat su
+        PocketBase, collection <code class="text-xs bg-black/5 px-1 rounded">ai_chat_sessions</code>) e l’analisi dati in
+        <strong>Analytics</strong>. Se non configurata, la ricerca resta solo testuale.
       </p>
       <div class="flex gap-3">
         <input

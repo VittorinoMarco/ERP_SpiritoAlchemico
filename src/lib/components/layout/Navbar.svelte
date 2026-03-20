@@ -17,7 +17,9 @@
     FileText,
     BarChart2,
     Activity,
-    X
+    X,
+    Wallet,
+    Sparkles
   } from 'lucide-svelte';
   import { pb } from '$lib/pocketbase';
   import { sottoScortaCount } from '$lib/stores/magazzino';
@@ -68,7 +70,9 @@
     | 'fatture'
     | 'analytics'
     | 'attivita'
-    | 'impostazioni';
+    | 'impostazioni'
+    | 'uscite'
+    | 'assistente';
 
   type NavItem = {
     id: NavItemId;
@@ -85,7 +89,9 @@
     fatture: FileText,
     analytics: BarChart2,
     attivita: Activity,
-    impostazioni: Settings
+    impostazioni: Settings,
+    uscite: Wallet,
+    assistente: Sparkles
   };
 
   export let user:
@@ -103,7 +109,9 @@
     { id: 'agenti', label: 'Agenti' },
     { id: 'magazzino', label: 'Magazzino' },
     { id: 'fatture', label: 'Fatture' },
+    { id: 'uscite', label: 'Uscite' },
     { id: 'analytics', label: 'Analytics' },
+    { id: 'assistente', label: 'Assistente AI' },
     { id: 'attivita', label: 'Attività' }
   ];
 
@@ -114,12 +122,14 @@
 
     if (role === 'agente') {
       return allItems.filter((item) =>
-        ['dashboard', 'clienti', 'ordini', 'attivita'].includes(item.id)
+        ['dashboard', 'clienti', 'ordini', 'attivita', 'assistente'].includes(item.id)
       );
     }
 
     if (role === 'magazziniere') {
-      return allItems.filter((item) => ['dashboard', 'magazzino', 'attivita'].includes(item.id));
+      return allItems.filter((item) =>
+        ['dashboard', 'magazzino', 'attivita', 'assistente'].includes(item.id)
+      );
     }
 
     return allItems;
@@ -171,16 +181,20 @@
         : path.startsWith('/agenti')
           ? 'agenti'
           : path.startsWith('/magazzino')
-            ? 'magazzino'
-            : path.startsWith('/fatture')
-              ? 'fatture'
+          ? 'magazzino'
+          : path.startsWith('/fatture')
+            ? 'fatture'
+            : path.startsWith('/uscite')
+              ? 'uscite'
               : path.startsWith('/analytics')
                 ? 'analytics'
-                : path.startsWith('/attivita')
-                  ? 'attivita'
-                  : path.startsWith('/impostazioni')
-                    ? 'impostazioni'
-                    : 'dashboard';
+                : path.startsWith('/assistente')
+                  ? 'assistente'
+                  : path.startsWith('/attivita')
+                    ? 'attivita'
+                    : path.startsWith('/impostazioni')
+                      ? 'impostazioni'
+                      : 'dashboard';
 
   const handleSelect = (id: NavItemId) => {
     moreMenuOpen = false;
@@ -192,7 +206,9 @@
       agenti: '/agenti',
       magazzino: '/magazzino',
       fatture: '/fatture',
+      uscite: '/uscite',
       analytics: '/analytics',
+      assistente: '/assistente',
       attivita: '/attivita',
       impostazioni: '/impostazioni'
     };

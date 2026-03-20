@@ -30,6 +30,7 @@
     "chart.js": "^4.4.0",
     "jspdf": "^4.2.0",
     "lucide-svelte": "^0.468.0",
+    "pdfjs-dist": "^4.10.38",
     "pocketbase": "^0.21.0"
   },
   "optionalDependencies": {

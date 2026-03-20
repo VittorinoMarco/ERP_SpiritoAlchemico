@@ -19,6 +19,8 @@ export interface InventoryMovement extends RecordModel {
   ordine_rif?: string;
   data_movimento: string;
   utente?: string;
+  /** Relation → expenses: movimento generato da acquisto/fornitore già in uscite */
+  expense_id?: string;
 }
 
 export const MOVIMENTO_LABELS: Record<MovementTipo, string> = {

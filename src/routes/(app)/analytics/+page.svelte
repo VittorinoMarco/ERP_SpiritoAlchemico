@@ -485,14 +485,23 @@
     <div class="analytics-bento">
       <!-- 1. AI Assistant -->
       <Card className="lg:col-span-2 bg-gradient-to-br from-green-50 to-white">
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center justify-between mb-4 gap-2 flex-wrap">
           <div class="flex items-center gap-2">
             <div class="h-9 w-9 rounded-xl bg-green-100 flex items-center justify-center">
               <Bot class="h-5 w-5 text-green-700" />
             </div>
-            <h2 class="text-sm font-medium text-[#1A1A1A]">AI Assistant</h2>
+            <h2 class="text-sm font-medium text-[#1A1A1A]">AI Assistant (dati)</h2>
           </div>
+          <a
+            href="/assistente"
+            class="text-xs font-medium text-green-800 bg-green-100/80 hover:bg-green-100 px-3 py-1.5 rounded-full transition-colors"
+          >
+            Apri chat Assistente →
+          </a>
         </div>
+        <p class="text-xs text-[#6B7280] mb-3">
+          Qui l’AI analizza i numeri caricati in questa pagina. Per domande libere con storico conversazioni usa la pagina Assistente.
+        </p>
         {#if $settingsStore.openaiApiKey}
           <div class="space-y-3">
             <div class="flex gap-2">
