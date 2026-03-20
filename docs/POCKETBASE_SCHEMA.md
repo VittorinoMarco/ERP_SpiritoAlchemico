@@ -131,7 +131,9 @@ Registra le **uscite** con tipo temporale, **imponibile** (campo `importo`), **I
 
 ### Fattura fornitore (liquido + accise + contrassegni)
 
-Su fatture tipo **Gruppo Alchemico** o simili, ogni SKU ha righe separate (merce, **Accisa**, **Contrassegni**). L’**imponibile unitario** del prodotto è la somma per bottiglia delle tre voci; l’**imponibile riga** = quella somma × quantità. L’**IVA** (es. 22%) è sul totale imponibile documento. L’app (pagina Magazzino → **Fattura fornitore**) usa l’AI su testo estratto dal PDF per ricostruire le righe; **verifica sempre** totali e abbinamento prodotti anagrafica.
+Su fatture tipo **Gruppo Alchemico** o simili, ogni SKU ha righe separate (merce, **Accisa**, **Contrassegni**). L’**imponibile unitario** del prodotto è la somma per bottiglia delle tre voci; l’**imponibile riga** = quella somma × quantità. L’**IVA** (es. 22%) è sul totale imponibile documento.
+
+L’app (Magazzino → **Fattura fornitore**) invia a OpenAI **testo estratto dal PDF** e le **prime 3 pagine come immagini** (Vision) per leggere il layout delle colonne (Quantità vs IVA). Serve la **API key OpenAI** in Impostazioni; nessuna modifica schema PocketBase. Costo chiamata leggermente superiore al solo testo. **Verifica sempre** totali e abbinamento prodotti in anagrafica.
 
 ### Collection `inventory_movements` — campo opzionale
 
