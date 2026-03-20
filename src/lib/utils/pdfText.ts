@@ -1,12 +1,18 @@
 import * as pdfjsLib from 'pdfjs-dist';
-// Vite: URL del worker per estrazione testo lato browser
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
+/**
+ * Worker da CDN: in produzione Nginx spesso serve i `.mjs` in `/_app/` come
+ * `application/octet-stream`, e il browser rifiuta i dynamic import (spec moduli).
+ * unpkg risponde con `application/javascript`.
+ * Mantieni allineata a `dependencies.pdfjs-dist` in package.json.
+ */
+const PDFJS_DIST_VERSION = '4.10.38';
 
 let workerConfigured = false;
 
 function ensureWorker() {
   if (workerConfigured || typeof window === 'undefined') return;
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${PDFJS_DIST_VERSION}/build/pdf.worker.min.mjs`;
   workerConfigured = true;
 }
 
