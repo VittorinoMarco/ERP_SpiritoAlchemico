@@ -32,12 +32,13 @@ export type SupplierInvoiceParsed = {
 const SYSTEM = `Sei un esperto di fatture d'acquisto per una distilleria italiana.
 
 REGOLE DI LETTURA (OBBLIGATORIE):
-1) Ogni "prodotto finito" (es. Amaro, Limoncello, Bitter) in fattura può essere seguito da righe separate "Accisa" e "Contrassegni" con la STESSA quantità del prodotto.
-2) Il PREZZO IMPONIBILE UNITARIO del prodotto = (importo imponibile liquido prodotto / qty) + (accisa riga / qty) + (contrassegni riga / qty). In pratica: somma dei tre totali riga diviso la quantità.
-3) IMPONIBILE RIGA PRODOTTO = prezzo_imponibile_unita * quantita (deve coincidere con la somma delle tre sotto-righe imponibili).
-4) L'IVA (es. 22%) è SULL'IMPONIBILE: non includere IVA nei campi imponibile. Leggi imponibile totale e IVA totale dal riepilogo fine fattura se presenti.
-5) Ignora righe puramente descrittive, privacy, trasporto se non sono righe merce.
-6) Numeri italiani: virgola decimale (es. 6,7200 → 6.72).
+1) La QUANTITÀ ("quantita" nel JSON) va letta SOLO dalla colonna o etichetta **Qtà**, **Q.tà**, **Quantità**, **Qty** della riga merce. NON usare mai come quantità: aliquote IVA (4, 5, 10, 22), codici "BT-22", percentuali, numeri di pagina o altre colonne numeriche.
+2) Ogni "prodotto finito" (es. Amaro, Limoncello, Bitter) può avere righe collegate "Accisa" e "Contrassegni" con la STESSA quantità del prodotto (quella della colonna Qtà).
+3) PREZZO IMPONIBILE UNITARIO (costo acquisto/produzione imponibile per bottiglia) = (totale imponibile liquido merce / Qtà) + (totale imponibile accisa / Qtà) + (totale imponibile contrassegni / Qtà). È la somma dei tre importi imponibili di riga diviso la Qtà del prodotto.
+4) IMPONIBILE RIGA PRODOTTO = prezzo_imponibile_unita * quantita (deve coincidere con liquido+accisa+contrassegni imponibili per quella quantità).
+5) L'IVA (es. 22%) è SULL'IMPONIBILE: non mettere l'IVA nei campi imponibile. Leggi imponibile totale e IVA dal riepilogo fine fattura.
+6) Ignora righe descrittive, privacy, trasporto se non sono merce.
+7) Numeri italiani: virgola decimale (es. 6,7200 → 6.72).
 
 OUTPUT: SOLO JSON valido, senza markdown, con questa forma:
 {
@@ -61,6 +62,26 @@ OUTPUT: SOLO JSON valido, senza markdown, con questa forma:
   "totale_ivato": number o null,
   "note_parsing": string breve se dubbi
 }`;
+
+/** Valori spesso confusi con la quantità (aliquote IVA). */
+const SOSPETTO_QTY_IVA = new Set([4, 5, 10, 22]);
+
+function correggiQuantitaSeProbabilmenteIva(r: SupplierInvoiceLineParsed): void {
+  const q = Number(r.quantita) || 0;
+  const p = Number(r.prezzo_imponibile_unita) || 0;
+  const imp = Number(r.imponibile_riga) || 0;
+  if (q <= 0 || p <= 0 || imp <= 0) return;
+  const implied = imp / p;
+  const rounded = Math.round(implied);
+  if (rounded <= 0 || rounded > 500000) return;
+  const errCurrent = Math.abs(q * p - imp);
+  const errImplied = Math.abs(rounded * p - imp);
+  if (errImplied < errCurrent - 0.01 && Math.abs(implied - rounded) < 0.15) {
+    if (SOSPETTO_QTY_IVA.has(q) || errCurrent > 0.05 * imp) {
+      r.quantita = rounded;
+    }
+  }
+}
 
 export async function parseSupplierInvoiceText(
   apiKey: string,
@@ -118,6 +139,7 @@ export async function parseSupplierInvoiceText(
   }
 
   for (const r of parsed.righe) {
+    correggiQuantitaSeProbabilmenteIva(r);
     const q = Number(r.quantita) || 0;
     const p = Number(r.prezzo_imponibile_unita) || 0;
     if (q > 0 && p > 0 && (!r.imponibile_riga || r.imponibile_riga <= 0)) {

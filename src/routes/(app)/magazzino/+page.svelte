@@ -21,6 +21,9 @@
   import { MOVIMENTO_LABELS, MOVIMENTO_COLORS } from '$lib/types/inventory';
   import type { Product } from '$lib/types/product';
   import { sottoScortaCount } from '$lib/stores/magazzino';
+  import { isSottoScortaGiacenza } from '$lib/constants/inventory';
+  import { getQtyReservedByDraftOrders } from '$lib/utils/inventoryDraftReservations';
+  import { eseguiCaricoMagazzino, eseguiScaricoMagazzino } from '$lib/utils/inventoryCarico';
 
   type TabId = 'giacenze' | 'movimenti' | 'report';
 
@@ -46,6 +49,8 @@
   let filterMovFrom = '';
   let filterMovTo = '';
   let reportPeriod = '7'; // giorni
+  /** Qtà impegnate da ordini in bozza (per prodotto). */
+  let draftReservations = new Map<string, number>();
 
   $: valoreTotale = inventory.reduce((s, inv) => {
     const p = inv.expand?.prodotto;
@@ -53,9 +58,7 @@
     return s + (inv.giacenza ?? 0) * prezzo;
   }, 0);
 
-  $: sottoScortaList = inventory.filter(
-    (inv) => (inv.giacenza ?? 0) < (inv.giacenza_minima ?? 0)
-  );
+  $: sottoScortaList = inventory.filter((inv) => isSottoScortaGiacenza(inv.giacenza));
   $: sottoScortaNum = sottoScortaList.length;
 
   $: today = new Date().toISOString().split('T')[0];
@@ -71,7 +74,7 @@
       inv.expand?.prodotto?.nome?.toLowerCase().includes(filterProdotto.toLowerCase()) ||
       inv.expand?.prodotto?.sku?.toLowerCase().includes(filterProdotto.toLowerCase());
     const matchUbicazione = !filterUbicazione || inv.ubicazione === filterUbicazione;
-    const matchSottoScorta = !soloSottoScorta || (inv.giacenza ?? 0) < (inv.giacenza_minima ?? 0);
+    const matchSottoScorta = !soloSottoScorta || isSottoScortaGiacenza(inv.giacenza);
     return matchProdotto && matchUbicazione && matchSottoScorta;
   });
 
@@ -159,7 +162,7 @@
       ]
     },
     options: {
-      indexAxis: 'y',
+      indexAxis: 'y' as const,
       plugins: { legend: { display: false } },
       scales: {
         x: { grid: { color: '#E5E7EB' }, beginAtZero: true },
@@ -172,24 +175,27 @@
 
   async function loadData() {
     try {
-      const [invList, movList, prodList] = await Promise.all([
+      const [invList, movList, prodList, resMap] = await Promise.all([
         pb.collection('inventory').getFullList({ expand: 'prodotto' }),
         pb.collection('inventory_movements').getFullList({
           expand: 'prodotto,utente',
           sort: '-data_movimento'
         }),
-        pb.collection('products').getFullList<Product>()
+        pb.collection('products').getFullList<Product>(),
+        getQtyReservedByDraftOrders(pb)
       ]);
-      inventory = invList;
-      movements = movList;
+      inventory = invList as typeof inventory;
+      movements = movList as typeof movements;
       products = prodList;
+      draftReservations = resMap;
     } catch {
       inventory = [];
       movements = [];
       products = [];
+      draftReservations = new Map();
     } finally {
       loading = false;
-      sottoScortaCount.set(inventory.filter((i) => (i.giacenza ?? 0) < (i.giacenza_minima ?? 0)).length);
+      sottoScortaCount.set(inventory.filter((i) => isSottoScortaGiacenza(i.giacenza)).length);
     }
   }
 
@@ -198,36 +204,59 @@
     if (!movimentoProdotto || isNaN(qty) || qty <= 0) return;
     movimentoSaving = true;
     try {
-      const delta = movimentoTipo === 'scarico' ? -qty : qty;
-      const mov = await pb.collection('inventory_movements').create({
-        prodotto: movimentoProdotto,
-        tipo: movimentoTipo,
-        quantita: Math.abs(qty),
-        causale: movimentoCausale.trim() || undefined,
-        utente: (pb.authStore.model as any)?.id
-      });
-      let inv = inventory.find((i) => i.prodotto === movimentoProdotto);
-      if (inv) {
-        inv = await pb.collection('inventory').update(inv.id, {
-          giacenza: Math.max(0, (inv.giacenza ?? 0) + delta)
-        }) as typeof inv;
+      const uid = (pb.authStore.model as { id?: string } | null)?.id;
+      let mov: { id: string };
+      if (movimentoTipo === 'scarico') {
+        const r = await eseguiScaricoMagazzino(pb, {
+          prodottoId: movimentoProdotto,
+          quantita: qty,
+          causale: movimentoCausale.trim() || undefined,
+          utenteId: uid
+        });
+        mov = { id: r.movementId };
+      } else if (movimentoTipo === 'carico') {
+        const r = await eseguiCaricoMagazzino(pb, {
+          prodottoId: movimentoProdotto,
+          quantita: qty,
+          causale: movimentoCausale.trim() || undefined,
+          utenteId: uid
+        });
+        mov = { id: r.movementId };
       } else {
-        inv = await pb.collection('inventory').create({
+        const delta = qty;
+        const m = await pb.collection('inventory_movements').create({
           prodotto: movimentoProdotto,
-          giacenza: Math.max(0, delta),
-          giacenza_minima: 0
-        }) as typeof inv;
+          tipo: 'rettifica',
+          quantita: Math.abs(qty),
+          causale: movimentoCausale.trim() || undefined,
+          utente: uid
+        });
+        mov = { id: (m as { id: string }).id };
+        let inv = inventory.find((i) => i.prodotto === movimentoProdotto);
+        if (inv) {
+          await pb.collection('inventory').update(inv.id, {
+            giacenza: Math.max(0, (inv.giacenza ?? 0) + delta)
+          });
+        } else {
+          await pb.collection('inventory').create({
+            prodotto: movimentoProdotto,
+            giacenza: Math.max(0, delta),
+            giacenza_minima: 0
+          });
+        }
       }
-      const [newInv, newMov] = await Promise.all([
+      const [newInv, newMov, resMap] = await Promise.all([
         pb.collection('inventory').getFullList({ expand: 'prodotto' }),
         pb.collection('inventory_movements').getFullList({
           expand: 'prodotto,utente',
           sort: '-data_movimento'
-        })
+        }),
+        getQtyReservedByDraftOrders(pb)
       ]);
-      inventory = newInv;
-      movements = newMov;
-      sottoScortaCount.set(inventory.filter((i) => (i.giacenza ?? 0) < (i.giacenza_minima ?? 0)).length);
+      inventory = newInv as typeof inventory;
+      movements = newMov as typeof movements;
+      draftReservations = resMap;
+      sottoScortaCount.set(inventory.filter((i) => isSottoScortaGiacenza(i.giacenza)).length);
       const prod = products.find((p) => p.id === movimentoProdotto);
       const prodName = prod?.nome ?? prod?.sku ?? movimentoProdotto;
       try {
@@ -237,7 +266,7 @@
           collection_rif: 'inventory_movements',
           record_rif: mov.id,
           dettagli: JSON.stringify({
-            messaggio: `${movimentoTipo === 'carico' ? 'Carico' : 'Scarico'} ${prodName}: ${Math.abs(qty)}`
+            messaggio: `${movimentoTipo === 'carico' ? 'Carico' : movimentoTipo === 'scarico' ? 'Scarico' : 'Rettifica'} ${prodName}: ${Math.abs(qty)}`
           })
         });
       } catch {
@@ -314,7 +343,7 @@
       </div>
       <div class="rounded-3xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-5 lg:p-6 flex items-start justify-between gap-4">
         <div>
-          <p class="text-xs font-medium uppercase tracking-wide text-[#6B7280]">Prodotti Sotto Scorta</p>
+          <p class="text-xs font-medium uppercase tracking-wide text-[#6B7280]">Sotto scorta (giacenza ≤ 6)</p>
           <p class="mt-2 text-3xl lg:text-4xl font-bold text-rose-600">{sottoScortaNum}</p>
         </div>
         <div class="h-11 w-11 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center">
@@ -366,7 +395,7 @@
             </select>
             <label class="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" bind:checked={soloSottoScorta} class="rounded border-black/20 text-[#F5D547]" />
-              <span class="text-sm text-[#1A1A1A]">Solo sotto scorta</span>
+              <span class="text-sm text-[#1A1A1A]">Solo giacenza ≤ 6</span>
             </label>
           </div>
         </div>
@@ -377,6 +406,8 @@
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Prodotto</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">SKU</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Giacenza</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase" title="Ordini in bozza">Riserva bozze</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase" title="Giacenza − impegni bozza">Previsione</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Minima</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Lotto</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Scadenza</th>
@@ -386,7 +417,9 @@
             </thead>
             <tbody>
               {#each filteredGiacenze as inv (inv.id)}
-                {@const sottoScorta = (inv.giacenza ?? 0) < (inv.giacenza_minima ?? 0)}
+                {@const riserva = draftReservations.get(inv.prodotto) ?? 0}
+                {@const previsione = Math.max(0, (inv.giacenza ?? 0) - riserva)}
+                {@const sottoScorta = isSottoScortaGiacenza(inv.giacenza)}
                 <tr class="border-b border-black/5 last:border-0 hover:bg-[#FFFDE7] {sottoScorta ? 'bg-[#FEE2E2]' : ''}">
                   <td class="px-4 py-3">
                     <div class="flex items-center gap-3">
@@ -409,6 +442,15 @@
                   <td class="px-4 py-3 text-sm text-[#6B7280]">{inv.expand?.prodotto?.sku ?? '—'}</td>
                   <td class="px-4 py-3">
                     <span class="text-lg font-bold text-[#1A1A1A]">{inv.giacenza ?? 0}</span>
+                  </td>
+                  <td class="px-4 py-3 text-sm text-amber-800 font-medium">
+                    {riserva > 0 ? riserva : '—'}
+                  </td>
+                  <td class="px-4 py-3 text-sm text-[#6B7280]">
+                    <span class="font-medium text-[#1A1A1A]">{previsione}</span>
+                    {#if riserva > 0}
+                      <span class="block text-[10px] text-[#9CA3AF]">dopo bozze</span>
+                    {/if}
                   </td>
                   <td class="px-4 py-3 text-sm text-[#6B7280]">{inv.giacenza_minima ?? 0}</td>
                   <td class="px-4 py-3 text-sm text-[#6B7280]">{inv.lotto ?? '—'}</td>
@@ -506,19 +548,20 @@
     {#if activeTab === 'report'}
       <div class="page-grid">
         <Card>
-          <h2 class="text-sm font-medium text-[#1A1A1A] mb-4">Prodotti in esaurimento</h2>
+          <h2 class="text-sm font-medium text-[#1A1A1A] mb-4">Prodotti in esaurimento (giacenza ≤ 6)</h2>
           <div class="space-y-2">
             {#each sottoScortaList.slice(0, 10) as inv}
               <div class="flex justify-between items-center py-2 border-b border-black/5 last:border-0">
                 <span class="text-sm font-medium text-[#1A1A1A]">{inv.expand?.prodotto?.nome ?? '—'}</span>
                 <span class="text-sm text-rose-600 font-bold">
-                  {inv.giacenza ?? 0} / {inv.giacenza_minima ?? 0}
+                  {inv.giacenza ?? 0} pz
+                  <span class="text-xs font-normal text-[#6B7280] ml-1">(min. anagrafica {inv.giacenza_minima ?? 0})</span>
                 </span>
               </div>
             {/each}
           </div>
           {#if sottoScortaList.length === 0}
-            <p class="py-8 text-center text-sm text-[#6B7280]">Nessun prodotto sotto scorta</p>
+            <p class="py-8 text-center text-sm text-[#6B7280]">Nessun prodotto con giacenza ≤ 6</p>
           {/if}
         </Card>
         <Card className="lg:col-span-2">

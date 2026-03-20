@@ -13,6 +13,13 @@
   } from 'lucide-svelte';
   import type { Order, OrderStato, OrderItem } from '$lib/types/order';
   import { STATO_LABELS, STATO_BADGE_COLORS, STATO_STEPS, CANALE_LABELS, CANALE_BADGE_COLORS } from '$lib/types/order';
+  import { eseguiScaricoMagazzino, ripristinaGiacenzaDaOrdine } from '$lib/utils/inventoryCarico';
+
+  const STATI_CON_SCARICO_MAGAZZINO: OrderStato[] = ['confermato', 'spedito', 'consegnato', 'completato'];
+
+  function ordineHaScaricatoMagazzino(stato: string | undefined): boolean {
+    return !!stato && STATI_CON_SCARICO_MAGAZZINO.includes(stato as OrderStato);
+  }
 
   const orderId = $page.params.id;
 
@@ -196,13 +203,14 @@
         for (const item of items) {
           const prodId = getItemProdottoId(item);
           if (!prodId) continue;
-          await pb.collection('inventory_movements').create({
-            prodotto: prodId,
-            tipo: 'scarico',
-            quantita: item.quantita ?? 0,
+          const q = Number(item.quantita) || 0;
+          if (q <= 0) continue;
+          await eseguiScaricoMagazzino(pb, {
+            prodottoId: prodId,
+            quantita: q,
             causale: `Ordine ${order.numero_ordine}`,
-            ordine_rif: orderId,
-            utente: user?.id
+            ordineRif: orderId,
+            utenteId: user?.id
           });
         }
       }
@@ -334,6 +342,12 @@
     if (!confirm(`Eliminare l'ordine ${order.numero_ordine}? Verranno eliminate anche tutte le righe.`)) return;
     deleting = true;
     try {
+      if (ordineHaScaricatoMagazzino(order.stato)) {
+        await ripristinaGiacenzaDaOrdine(pb, orderId, {
+          utenteId: user?.id,
+          causalePrefix: 'Ripristino eliminazione ordine'
+        });
+      }
       for (const item of items) {
         await pb.collection('order_items').delete(item.id);
       }
@@ -352,6 +366,12 @@
     statoError = '';
     updating = true;
     try {
+      if (ordineHaScaricatoMagazzino(order.stato)) {
+        await ripristinaGiacenzaDaOrdine(pb, orderId, {
+          utenteId: user?.id,
+          causalePrefix: 'Ripristino annullamento ordine'
+        });
+      }
       order = await pb.collection('orders').update(orderId, { stato: 'annullato' }) as typeof order;
       await logActivity('stato_cambiato', `Annullato`);
     } catch (e: any) {

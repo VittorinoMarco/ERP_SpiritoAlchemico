@@ -9,6 +9,7 @@
   import type { Product } from '$lib/types/product';
   import type { OrderCanale } from '$lib/types/order';
   import { CANALE_LABELS } from '$lib/types/order';
+  import { eseguiScaricoMagazzino } from '$lib/utils/inventoryCarico';
 
   type LineItem = {
     id: string;
@@ -234,13 +235,13 @@
         });
       }
       for (const line of lineItems) {
-        await pb.collection('inventory_movements').create({
-          prodotto: line.prodotto,
-          tipo: 'scarico',
+        if (line.quantita <= 0) continue;
+        await eseguiScaricoMagazzino(pb, {
+          prodottoId: line.prodotto,
           quantita: line.quantita,
           causale: `Ordine ${order.numero_ordine}`,
-          ordine_rif: order.id,
-          utente: user?.id
+          ordineRif: order.id,
+          utenteId: user?.id
         });
       }
       await logActivity(order.id, 'confermato', 'Ordine confermato');

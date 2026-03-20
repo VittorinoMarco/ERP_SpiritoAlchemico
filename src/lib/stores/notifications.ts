@@ -1,6 +1,7 @@
 import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
 import { pb } from '$lib/pocketbase';
+import { isSottoScortaGiacenza } from '$lib/constants/inventory';
 
 const READ_KEY = 'erp_notifications_read';
 
@@ -79,14 +80,12 @@ function createNotificationsStore() {
 
         const notifs: Notification[] = [];
 
-        const sottoScorta = invList.filter(
-          (i) => (i.giacenza ?? 0) < (i.giacenza_minima ?? 0)
-        );
+        const sottoScorta = invList.filter((i) => isSottoScortaGiacenza(i.giacenza));
         if (sottoScorta.length > 0) {
           notifs.push({
             id: 'sotto_scorta:summary',
             tipo: 'sotto_scorta',
-            titolo: `${sottoScorta.length} prodotto${sottoScorta.length > 1 ? 'i' : ''} sotto scorta`,
+            titolo: `${sottoScorta.length} prodotto${sottoScorta.length > 1 ? 'i' : ''} con giacenza ≤ 6`,
             link: '/magazzino',
             created: new Date().toISOString(),
             recordId: 'summary'

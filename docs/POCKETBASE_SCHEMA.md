@@ -1,5 +1,11 @@
 # PocketBase Schema
 
+## Collection `inventory` — soglia “sotto scorta”
+
+L’app (notifiche, badge magazzino, filtri) considera **sotto scorta** quando **`giacenza ≤ 6`** (soglia fissa nel codice, `SOGLIA_SOTTO_SCORTA`). Il campo **`giacenza_minima`** resta in anagrafica per riferimento / report ma **non** determina più l’alert globale.
+
+---
+
 ## Collection `orders`
 
 Per supportare l'IVA sugli ordini, aggiungi questi campi se mancano:

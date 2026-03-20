@@ -51,7 +51,7 @@ Usa la sintassi PocketBase: ~ per contains, && per AND, || per OR.
 Esempi:
 - "Bar Roma" → clients: "ragione_sociale ~ \\"Bar Roma\\" || email ~ \\"Bar Roma\\""
 - "ordini marzo" → orders: "data_ordine >= \\"2025-03-01\\" && data_ordine <= \\"2025-03-31\\""
-- "sotto scorta" → inventory: "giacenza < giacenza_minima"
+- "sotto scorta" / "esaurimento" → inventory: "giacenza <= 6" (in app la soglia è fissa a 6)
 - "fatture non pagate" → invoices: "stato != \\"pagata\\""
 Se non applicabile, usa stringa vuota "".`
           },

@@ -394,23 +394,41 @@
           <tr class="border-b border-black/5 text-left text-xs text-[#6B7280]">
             <th class="px-2 py-2">Descrizione fattura</th>
             <th class="px-2 py-2">Qtà</th>
+            <th class="px-2 py-2">€/u impon. (costo acquisto)</th>
             <th class="px-2 py-2">Imp. riga</th>
+            <th class="px-2 py-2">Listino / margine</th>
             <th class="px-2 py-2">Prodotto ERP</th>
           </tr>
         </thead>
         <tbody>
-          {#each fatturaRows as row, idx}
+          {#each fatturaRows as row}
+            {@const pSel = products.find((p) => p.id === row.prodottoId)}
+            {@const listino = pSel ? Number(pSel.prezzo_listino) || 0 : 0}
+            {@const cost = Number(row.prezzo_imponibile_unita) || 0}
+            {@const marginePct =
+              listino > 0 && cost >= 0 ? Math.round(((listino - cost) / listino) * 1000) / 10 : null}
             <tr class="border-b border-black/5 align-top">
               <td class="px-2 py-2 max-w-[200px]">
                 <span class="text-xs">{row.descrizione}</span>
-                {#if row.prezzo_liquido_unita != null || row.accisa_unita != null}
-                  <p class="text-[10px] text-[#9CA3AF] mt-1">
-                    €/u tot {formatEuro(row.prezzo_imponibile_unita)} (liquido/accisa/contr. se distinti)
-                  </p>
+                <p class="text-[10px] text-[#9CA3AF] mt-1">
+                  Imponibile unitario = liquido + accisa + contrassegni (per bottiglia)
+                </p>
+              </td>
+              <td class="px-2 py-2 whitespace-nowrap font-medium">{row.quantita}</td>
+              <td class="px-2 py-2 whitespace-nowrap">{formatEuro(row.prezzo_imponibile_unita)}</td>
+              <td class="px-2 py-2 whitespace-nowrap">{formatEuro(row.imponibile_riga)}</td>
+              <td class="px-2 py-2 text-xs">
+                {#if pSel && listino > 0}
+                  <span class="text-[#1A1A1A]">{formatEuro(listino)}</span>
+                  {#if marginePct !== null}
+                    <span class="block mt-0.5 {marginePct >= 0 ? 'text-emerald-700' : 'text-rose-700'}">
+                      Margine {marginePct >= 0 ? '+' : ''}{marginePct}% sul listino
+                    </span>
+                  {/if}
+                {:else}
+                  <span class="text-[#9CA3AF]">—</span>
                 {/if}
               </td>
-              <td class="px-2 py-2 whitespace-nowrap">{row.quantita}</td>
-              <td class="px-2 py-2 whitespace-nowrap">{formatEuro(row.imponibile_riga)}</td>
               <td class="px-2 py-2">
                 <select
                   class="w-full min-w-[140px] rounded-xl border border-black/10 px-2 py-1 text-xs"
