@@ -4,8 +4,8 @@
   import Modal from '$lib/components/ui/Modal.svelte';
   import { settingsStore } from '$lib/stores/settings';
   import { registraAcquistoFornitoreConUscita } from '$lib/utils/supplierExpenseApply';
-  import { extractTextFromPdfFile } from '$lib/utils/pdfText';
-  import { parseSupplierInvoiceText, type SupplierInvoiceLineParsed } from '$lib/utils/supplierInvoiceAi';
+  import { extractTextFromPdfFile, renderPdfPagesToDataUrls } from '$lib/utils/pdfText';
+  import { parseSupplierInvoice, type SupplierInvoiceLineParsed } from '$lib/utils/supplierInvoiceAi';
   import {
     firstMatchProductId,
     bestProductCandidates,
@@ -161,14 +161,30 @@
       return;
     }
     const text = fatturaPaste.trim();
-    if (!text) {
-      fatturaErr = 'Estrai testo dal PDF o incolla il testo della fattura.';
+    const pdf = fatturaFile?.[0];
+    if (!text && !pdf) {
+      fatturaErr = 'Seleziona un PDF e/o incolla il testo della fattura.';
       return;
     }
     fatturaParsing = true;
     try {
       const cat = await resolveCatalogForInvoice();
-      const p = await parseSupplierInvoiceText(key, text);
+      let imageDataUrls: string[] | undefined;
+      if (pdf) {
+        try {
+          imageDataUrls = await renderPdfPagesToDataUrls(pdf, {
+            maxPages: 3,
+            scale: 1.15,
+            maxWidthPx: 1200
+          });
+        } catch (visErr) {
+          console.warn('renderPdfPagesToDataUrls', visErr);
+        }
+      }
+      const p = await parseSupplierInvoice(key, {
+        rawText: text,
+        imageDataUrls: imageDataUrls?.length ? imageDataUrls : undefined
+      });
       fatturaParsedNumero = p.numero_documento ?? '';
       fatturaParsedData = p.data_documento ?? today();
       fatturaRows = p.righe.map((r) => ({
@@ -357,9 +373,9 @@
       Verifica sempre i totali prima di applicare.
     </p>
     <p class="text-xs text-[#6B7280] mb-4 rounded-xl bg-[#FFFDE7] border border-[#F5D547]/40 px-3 py-2">
-      <strong>PDF “diretto” al modello:</strong> servirebbe inviare il file come immagini (vision API) o tramite
-      <em>Files</em> + assistente: oggi usiamo il <strong>testo estratto</strong> dal PDF (più leggero e economico). Se il
-      PDF ha colonne confuse, incolla il testo dalla fattura o correggi la <strong>Qtà</strong> nella schermata di revisione.
+      <strong>Lettura fattura:</strong> se selezioni un PDF, le <strong>prime 3 pagine</strong> vengono inviate come
+      <strong>immagini</strong> al modello (Vision) insieme al testo estratto, così legge il layout delle colonne (Qtà vs IVA).
+      Costo API leggermente superiore al solo testo. Puoi anche incollare solo il testo o correggere la <strong>Qtà</strong> in revisione.
     </p>
     {#if fatturaErr}
       <p class="text-sm text-rose-600 mb-3">{fatturaErr}</p>

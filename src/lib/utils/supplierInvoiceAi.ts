@@ -29,6 +29,93 @@ export type SupplierInvoiceParsed = {
   note_parsing?: string;
 };
 
+export type ParseSupplierInvoiceInput = {
+  /** Testo estratto da PDF o incollato (opzionale se invii immagini). */
+  rawText: string;
+  /** Pagine come data:image/png;base64,... — lettura layout reale (Vision). */
+  imageDataUrls?: string[];
+};
+
+function stripCodeFences(s: string): string {
+  return s
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+}
+
+/** Estrae il primo oggetto JSON bilanciato (gestisce testo spurio prima/dopo). */
+function extractBalancedJsonObject(s: string): string | null {
+  const start = s.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (c === '\\') escape = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function parseSupplierInvoiceJsonFromModelOutput(content: string): SupplierInvoiceParsed {
+  const trimmed = stripCodeFences(content || '');
+  try {
+    return JSON.parse(trimmed) as SupplierInvoiceParsed;
+  } catch {
+    const sub = extractBalancedJsonObject(trimmed);
+    if (sub) {
+      try {
+        return JSON.parse(sub) as SupplierInvoiceParsed;
+      } catch {
+        /* fallthrough */
+      }
+    }
+    throw new Error(
+      'Risposta AI non è JSON valido. Riprova, oppure usa meno pagine / incolla il testo della tabella merci.'
+    );
+  }
+}
+
+function parseRefineRigheFromModelOutput(content: string): { descrizione: string; quantita: number }[] {
+  const trimmed = stripCodeFences(content || '');
+  const tryParse = (src: string) => {
+    const o = JSON.parse(src) as { righe?: { descrizione?: string; quantita?: number }[] };
+    if (!o.righe || !Array.isArray(o.righe)) return [];
+    return o.righe
+      .map((x) => ({
+        descrizione: String(x.descrizione ?? '').trim(),
+        quantita: Math.round(Number(x.quantita) || 0)
+      }))
+      .filter((x) => x.quantita > 0);
+  };
+  try {
+    return tryParse(trimmed);
+  } catch {
+    const sub = extractBalancedJsonObject(trimmed);
+    if (!sub) return [];
+    try {
+      return tryParse(sub);
+    } catch {
+      return [];
+    }
+  }
+}
+
 const SYSTEM = `Sei un esperto di fatture d'acquisto per una distilleria italiana.
 
 REGOLE DI LETTURA (OBBLIGATORIE):
@@ -39,9 +126,10 @@ REGOLE DI LETTURA (OBBLIGATORIE):
 5) L'IVA (es. 22%) è SULL'IMPONIBILE: non mettere l'IVA nei campi imponibile. Leggi imponibile totale e IVA dal riepilogo fine fattura.
 6) Ignora righe descrittive, privacy, trasporto se non sono merce.
 7) Numeri italiani: virgola decimale (es. 6,7200 → 6.72).
-8) ERRORE FREQUENTE: se in fattura compare 22 come **percentuale IVA** e anche come numero in tabella, NON confondere: la **quantità** è il valore sotto l’intestazione colonna **Qtà / Quantità**, che spesso è 12, 18, 24, 36, 48, 72… e quasi mai coincide con 22.
+8) ERRORE FREQUENTE: se in fattura compare 22 come **percentuale IVA** e anche come numero in tabella, NON confondere: la **quantità** è il valore sotto l’intestazione colonna **Qtà / Quantità**, che spesso è 12, 18, 24, 30, 36, 48, 72… e quasi mai coincide con 22.
+9) Fatture elettroniche / Gruppo Alchemico: nel testo estratto spesso compare la sequenza **BT 22** (natura IVA) seguita da altri numeri; il valore in colonna **Quantita / Quantità** (es. 48, 30, 18) è la **quantita** del prodotto. **22 non è mai la quantità** in questi documenti se compare come aliquota/natura accanto a “BT”.
 
-OUTPUT: SOLO JSON valido, senza markdown, con questa forma:
+OUTPUT: Rispondi con un unico oggetto JSON (nessun testo fuori dal JSON) con questa forma:
 {
   "numero_documento": string o null,
   "data_documento": "YYYY-MM-DD" o null,
@@ -84,12 +172,10 @@ PROBLEMA: il primo parsing ha messo come "quantita" lo stesso numero dell'aliquo
 Devi leggere dal TESTO della fattura la colonna **Qtà**, **Q.tà**, **Quantità** per OGNI riga prodotto (merce principale: amaro, limoncello, bitter, gin, ecc.).
 
 REGOLE:
-- Restituisci SOLO JSON: { "righe": [ { "descrizione": string, "quantita": number } ] }
+- Rispondi con un unico oggetto JSON: { "righe": [ { "descrizione": string, "quantita": number } ] }
 - Una voce per ogni prodotto finito del primo JSON (stesso ordine se possibile); "descrizione" può essere abbreviata ma deve permettere il match.
 - "quantita" = numero intero dalla colonna quantità, MAI la percentuale IVA.
-- Ricalcola coerenza: se conosci imponibile riga e qty, prezzo unitario imponibile = imponibile_riga / qty (verifica con il testo).
-
-NON includere markdown.`;
+- Ricalcola coerenza: se conosci imponibile riga e qty, prezzo unitario imponibile = imponibile_riga / qty (verifica con il testo).`;
 
 async function refineQuantitaConOpenAI(
   apiKey: string,
@@ -109,33 +195,19 @@ async function refineQuantitaConOpenAI(
         { role: 'system', content: REFINE_QTY_SYSTEM },
         {
           role: 'user',
-          content: `Righe già estratte (quantità probabilmente errate, spesso = IVA):\n${JSON.stringify(snapshot)}\n\n---\nTesto fattura:\n${trimmed}\n---\n\nCorreggi SOLO le quantità. JSON "righe".`
+          content: `Righe già estratte (quantità probabilmente errate, spesso = IVA):\n${JSON.stringify(snapshot)}\n\n---\nTesto fattura:\n${trimmed}\n---\n\nCorreggi SOLO le quantità e restituisci JSON con chiave "righe".`
         }
       ],
       temperature: 0,
-      max_tokens: 2000
+      max_tokens: 2000,
+      response_format: { type: 'json_object' }
     })
   });
   if (!res.ok) return null;
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content?.trim() ?? '';
-  const jsonStr = content
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
-  try {
-    const o = JSON.parse(jsonStr) as { righe?: { descrizione?: string; quantita?: number }[] };
-    if (!o.righe || !Array.isArray(o.righe)) return null;
-    return o.righe
-      .map((x) => ({
-        descrizione: String(x.descrizione ?? '').trim(),
-        quantita: Math.round(Number(x.quantita) || 0)
-      }))
-      .filter((x) => x.quantita > 0);
-  } catch {
-    return null;
-  }
+  const rows = parseRefineRigheFromModelOutput(content);
+  return rows.length > 0 ? rows : null;
 }
 
 function applicaQuantitaARiga(r: SupplierInvoiceLineParsed, q: number): void {
@@ -193,13 +265,39 @@ function correggiQuantitaSeProbabilmenteIva(r: SupplierInvoiceLineParsed): void 
   }
 }
 
-export async function parseSupplierInvoiceText(
+type VisionContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
+/**
+ * Parsing fattura: testo e/o immagini delle pagine PDF (vision).
+ * Usa `response_format: json_object` per ridurre risposte malformate.
+ */
+export async function parseSupplierInvoice(
   apiKey: string,
-  rawText: string
+  input: ParseSupplierInvoiceInput
 ): Promise<SupplierInvoiceParsed> {
   if (!apiKey?.trim()) throw new Error('API key OpenAI mancante');
-  const trimmed = rawText.trim().slice(0, 120000);
-  if (!trimmed) throw new Error('Testo fattura vuoto');
+  const trimmed = input.rawText.trim().slice(0, 120000);
+  const images = input.imageDataUrls?.filter(Boolean) ?? [];
+  if (!trimmed && images.length === 0) throw new Error('Serve testo fattura o un PDF da analizzare.');
+
+  const userParts: VisionContentPart[] = [];
+  if (images.length > 0) {
+    userParts.push({
+      type: 'text',
+      text: `Le immagini sono pagine della fattura. Leggi le TABELLE: la colonna Quantità/Quantita/Qtà contiene le quantità (es. 48, 30, 18). Il numero 22 è quasi sempre IVA/natura (es. "BT 22"), NON la quantità. Incrocia con il testo OCR sotto se presente.`
+    });
+    for (const url of images.slice(0, 4)) {
+      userParts.push({ type: 'image_url', image_url: { url } });
+    }
+  }
+  if (trimmed) {
+    userParts.push({
+      type: 'text',
+      text: `Testo estratto dalla fattura (disordinato, può avere colonne mischiate):\n\n---\n${trimmed}\n---\n\nEstrai il JSON secondo le istruzioni di sistema.`
+    });
+  }
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -211,13 +309,11 @@ export async function parseSupplierInvoiceText(
       model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: SYSTEM },
-        {
-          role: 'user',
-          content: `Testo estratto dalla fattura PDF (può essere disordinato):\n\n---\n${trimmed}\n---\n\nRestituisci il JSON.`
-        }
+        { role: 'user', content: userParts }
       ],
       temperature: 0.1,
-      max_tokens: 4000
+      max_tokens: 8192,
+      response_format: { type: 'json_object' }
     })
   });
 
@@ -227,19 +323,12 @@ export async function parseSupplierInvoiceText(
   }
 
   const data = await res.json();
-  const content = data.choices?.[0]?.message?.content?.trim() ?? '';
-  const jsonStr = content
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
-
-  let parsed: SupplierInvoiceParsed;
-  try {
-    parsed = JSON.parse(jsonStr) as SupplierInvoiceParsed;
-  } catch {
-    throw new Error('Risposta AI non è JSON valido. Riprova o incolla il testo della fattura.');
+  const choice = data.choices?.[0];
+  if (choice?.finish_reason === 'length') {
+    throw new Error('Risposta AI troncata: riprova con meno pagine PDF o incolla solo la parte tabella merci.');
   }
+  const content = choice?.message?.content?.trim() ?? '';
+  const parsed = parseSupplierInvoiceJsonFromModelOutput(content);
 
   if (!parsed.righe || !Array.isArray(parsed.righe)) {
     parsed.righe = [];
@@ -283,4 +372,9 @@ export async function parseSupplierInvoiceText(
   }
 
   return parsed;
+}
+
+/** @deprecated Usa `parseSupplierInvoice`; mantenuto per compatibilità. */
+export async function parseSupplierInvoiceText(apiKey: string, rawText: string): Promise<SupplierInvoiceParsed> {
+  return parseSupplierInvoice(apiKey, { rawText });
 }
