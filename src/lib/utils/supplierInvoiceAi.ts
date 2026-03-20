@@ -120,14 +120,15 @@ const SYSTEM = `Sei un esperto di fatture d'acquisto per una distilleria italian
 
 REGOLE DI LETTURA (OBBLIGATORIE):
 1) La QUANTITÀ ("quantita" nel JSON) va letta SOLO dalla colonna o etichetta **Qtà**, **Q.tà**, **Quantità**, **Qty** della riga merce. NON usare mai come quantità: aliquote IVA (4, 5, 10, 22), codici "BT-22", percentuali, numeri di pagina o altre colonne numeriche.
-2) Ogni "prodotto finito" (es. Amaro, Limoncello, Bitter) può avere righe collegate "Accisa" e "Contrassegni" con la STESSA quantità del prodotto (quella della colonna Qtà).
-3) PREZZO IMPONIBILE UNITARIO (costo acquisto/produzione imponibile per bottiglia) = (totale imponibile liquido merce / Qtà) + (totale imponibile accisa / Qtà) + (totale imponibile contrassegni / Qtà). È la somma dei tre importi imponibili di riga diviso la Qtà del prodotto.
-4) IMPONIBILE RIGA PRODOTTO = prezzo_imponibile_unita * quantita (deve coincidere con liquido+accisa+contrassegni imponibili per quella quantità).
-5) L'IVA (es. 22%) è SULL'IMPONIBILE: non mettere l'IVA nei campi imponibile. Leggi imponibile totale e IVA dal riepilogo fine fattura.
-6) Ignora righe descrittive, privacy, trasporto se non sono merce.
-7) Numeri italiani: virgola decimale (es. 6,7200 → 6.72).
-8) ERRORE FREQUENTE: se in fattura compare 22 come **percentuale IVA** e anche come numero in tabella, NON confondere: la **quantità** è il valore sotto l’intestazione colonna **Qtà / Quantità**, che spesso è 12, 18, 24, 30, 36, 48, 72… e quasi mai coincide con 22.
-9) Fatture elettroniche / Gruppo Alchemico: nel testo estratto spesso compare la sequenza **BT 22** (natura IVA) seguita da altri numeri; il valore in colonna **Quantita / Quantità** (es. 48, 30, 18) è la **quantita** del prodotto. **22 non è mai la quantità** in questi documenti se compare come aliquota/natura accanto a “BT”.
+2) L'array **righe** deve contenere **UN SOLO oggetto per ogni prodotto finito** (Amaro, Limoncello, Bitter, Gin, ecc.). **VIETATO** inserire righe separate la cui descrizione è solo o quasi solo "Accisa", "Accise", "Contrassegni", "Contrassegno": quegli importi vanno **sempre cumulati** nella riga del prodotto sopra, nei campi opzionali prezzo_liquido_unita, accisa_unita, contrassegno_unita e nel prezzo_imponibile_unita / imponibile_riga totali.
+3) Ogni prodotto finito può in fattura avere sotto-righe Accisa e Contrassegni con la **stessa Qtà** del prodotto: somma i tre imponibili di riga e dividi per Qtà per ottenere prezzo_imponibile_unita.
+4) PREZZO IMPONIBILE UNITARIO = (imponibile liquido merce / Qtà) + (imponibile accisa / Qtà) + (imponibile contrassegni / Qtà).
+5) IMPONIBILE RIGA PRODOTTO = prezzo_imponibile_unita * quantita (coincide con somma liquido+accisa+contrassegni imponibili).
+6) L'IVA (es. 22%) è SULL'IMPONIBILE: non mettere l'IVA nei campi imponibile. Leggi imponibile totale e IVA dal riepilogo fine fattura.
+7) Ignora righe descrittive, privacy, trasporto se non sono merce.
+8) Numeri italiani: virgola decimale (es. 6,7200 → 6.72).
+9) ERRORE FREQUENTE: se in fattura compare 22 come **percentuale IVA** e anche come numero in tabella, NON confondere: la **quantità** è il valore sotto l’intestazione colonna **Qtà / Quantità**, che spesso è 12, 18, 24, 30, 36, 48, 72… e quasi mai coincide con 22.
+10) Fatture elettroniche / Gruppo Alchemico: nel testo estratto spesso compare la sequenza **BT 22** (natura IVA) seguita da altri numeri; il valore in colonna **Quantita / Quantità** (es. 48, 30, 18) è la **quantita** del prodotto. **22 non è mai la quantità** in questi documenti se compare come aliquota/natura accanto a “BT”.
 
 OUTPUT: Rispondi con un unico oggetto JSON (nessun testo fuori dal JSON) con questa forma:
 {
@@ -248,6 +249,62 @@ function normDesc(s: string): string {
     .trim();
 }
 
+/** Descrizione che è solo (o quasi) accisa/contrassegno in tabella, non il nome commerciale. */
+function classificaRigaSoloAccisaOContrassegno(desc: string): 'accisa' | 'contrassegno' | null {
+  const n = normDesc(desc);
+  if (!n) return null;
+  if (/\d+[,.]\d+\s*l(t|itro)?\b/i.test(n)) return null;
+  if (/^(accisa|accise)\b/i.test(n)) return 'accisa';
+  if (/^contrassegn/i.test(n)) return 'contrassegno';
+  return null;
+}
+
+/**
+ * Se l'AI ha lasciato righe separate "Accisa" / "Contrassegni", le unisce alla riga prodotto precedente.
+ * Mantiene imponibile_riga e prezzo_imponibile_unita coerenti (somma dei tre componenti).
+ */
+export function cumulaAcciseContrassegniInRigaProdotto(righe: SupplierInvoiceLineParsed[]): {
+  righe: SupplierInvoiceLineParsed[];
+  mergedCount: number;
+} {
+  const out: SupplierInvoiceLineParsed[] = [];
+  let mergedCount = 0;
+  for (const row of righe) {
+    const kind = classificaRigaSoloAccisaOContrassegno(row.descrizione ?? '');
+    if (kind && out.length > 0) {
+      const prev = out[out.length - 1];
+      if (classificaRigaSoloAccisaOContrassegno(prev.descrizione ?? '')) {
+        out.push({ ...row });
+        continue;
+      }
+      const qPrev = Number(prev.quantita) || 0;
+      const qSat = Number(row.quantita) || 0;
+      const impSat = Number(row.imponibile_riga) || 0;
+      const puSat = qSat > 0 ? impSat / qSat : qPrev > 0 ? impSat / qPrev : 0;
+      prev.imponibile_riga = Math.round(((Number(prev.imponibile_riga) || 0) + impSat) * 100) / 100;
+      if (qPrev > 0) {
+        prev.prezzo_imponibile_unita = Math.round((prev.imponibile_riga / qPrev) * 10000) / 10000;
+      }
+      if (kind === 'accisa') {
+        prev.accisa_unita = Math.round(((Number(prev.accisa_unita) || 0) + puSat) * 10000) / 10000;
+      } else {
+        prev.contrassegno_unita = Math.round(((Number(prev.contrassegno_unita) || 0) + puSat) * 10000) / 10000;
+      }
+      const acc = Number(prev.accisa_unita) || 0;
+      const con = Number(prev.contrassegno_unita) || 0;
+      const totPu = Number(prev.prezzo_imponibile_unita) || 0;
+      if (acc > 0 || con > 0) {
+        const liq = totPu - acc - con;
+        if (liq >= -0.01) prev.prezzo_liquido_unita = Math.round(Math.max(0, liq) * 10000) / 10000;
+      }
+      mergedCount += 1;
+      continue;
+    }
+    out.push({ ...row });
+  }
+  return { righe: out, mergedCount };
+}
+
 function correggiQuantitaSeProbabilmenteIva(r: SupplierInvoiceLineParsed): void {
   const q = Number(r.quantita) || 0;
   const p = Number(r.prezzo_imponibile_unita) || 0;
@@ -286,7 +343,7 @@ export async function parseSupplierInvoice(
   if (images.length > 0) {
     userParts.push({
       type: 'text',
-      text: `Le immagini sono pagine della fattura. Leggi le TABELLE: la colonna Quantità/Quantita/Qtà contiene le quantità (es. 48, 30, 18). Il numero 22 è quasi sempre IVA/natura (es. "BT 22"), NON la quantità. Incrocia con il testo OCR sotto se presente.`
+      text: `Le immagini sono pagine della fattura. Leggi le TABELLE: la colonna Quantità/Quantita/Qtà contiene le quantità (es. 48, 30, 18). Il numero 22 è quasi sempre IVA/natura (es. "BT 22"), NON la quantità. NON creare righe JSON separate per sole voci "Accisa" o "Contrassegni": uniscile nel prodotto sopra. Incrocia con il testo OCR se presente.`
     });
     for (const url of images.slice(0, 4)) {
       userParts.push({ type: 'image_url', image_url: { url } });
@@ -335,6 +392,14 @@ export async function parseSupplierInvoice(
   }
   if (typeof parsed.aliquota_iva_percentuale !== 'number' || Number.isNaN(parsed.aliquota_iva_percentuale)) {
     parsed.aliquota_iva_percentuale = 22;
+  }
+
+  const { righe: righeCumulate, mergedCount } = cumulaAcciseContrassegniInRigaProdotto(parsed.righe);
+  parsed.righe = righeCumulate;
+  if (mergedCount > 0) {
+    parsed.note_parsing = [parsed.note_parsing, `Accise/contrassegni accorpati nella riga prodotto (${mergedCount} riga/e).`]
+      .filter(Boolean)
+      .join(' ');
   }
 
   for (const r of parsed.righe) {
