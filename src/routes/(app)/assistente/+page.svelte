@@ -3,7 +3,9 @@
   import { settingsStore } from '$lib/stores/settings';
   import Card from '$lib/components/ui/Card.svelte';
   import Button from '$lib/components/ui/Button.svelte';
-  import { sendAssistantChat, type ChatMessage } from '$lib/utils/assistantChat';
+  import { pb } from '$lib/pocketbase';
+  import { sendAssistantChatStream, type ChatMessage } from '$lib/utils/assistantChat';
+  import { buildAssistantDataSnapshot } from '$lib/utils/assistantContext';
   import {
     listSessions,
     createSession,
@@ -26,6 +28,8 @@
   let sessionsLoading = true;
   let collectionMissing = false;
   let sessionsLoadError = '';
+  /** Anteprima risposta mentre arriva lo stream OpenAI. */
+  let streamPreview = '';
 
   $: apiKey = $settingsStore.openaiApiKey ?? '';
   $: activeSession = sessions.find((s) => s.id === activeId);
@@ -147,13 +151,23 @@
       content: m.content
     }));
 
+    streamPreview = '';
     try {
-      const reply = await sendAssistantChat(apiKey, forApi);
+      const snapshot = await buildAssistantDataSnapshot(pb).catch(
+        () =>
+          '[Dati ERP — lettura non riuscita (rete o permessi PocketBase). Rispondi in modo generico e suggerisci di aprire le pagine dell’app.]'
+      );
+      const reply = await sendAssistantChatStream(apiKey, forApi, {
+        dataSnapshot: snapshot,
+        onChunk: (full) => {
+          streamPreview = full;
+        }
+      });
       const cur = sessions.find((s) => s.id === sid);
       if (cur) {
         await updateSession({
           ...cur,
-          messages: [...cur.messages, { role: 'assistant', content: reply }],
+          messages: [...cur.messages, { role: 'assistant', content: reply || streamPreview }],
           updatedAt: new Date().toISOString()
         });
         await refreshList();
@@ -161,6 +175,7 @@
     } catch (err) {
       error = err instanceof Error ? err.message : 'Errore invio messaggio';
     } finally {
+      streamPreview = '';
       loading = false;
     }
   }
@@ -307,11 +322,12 @@
               <Sparkles class="h-10 w-10 text-[#E5E7EB] mb-3" />
               <p class="text-[#1A1A1A] font-medium">Come posso aiutarti?</p>
               <p class="text-sm text-[#6B7280] mt-2 max-w-md">
-                Chiedi ad esempio come gestire uno stato ordine, interpretare una provvigione o organizzare il magazzino.
+                A ogni messaggio l’assistente legge un <strong>riepilogo aggiornato</strong> da PocketBase (ordini, magazzino,
+                fatture…) e risponde in <strong>streaming</strong> mentre scrive.
               </p>
             </div>
           {:else}
-            {#each messages as m, i (i + m.role + m.content.slice(0, 20))}
+            {#each messages as m, i (i + m.role + (m.content?.slice(0, 24) ?? ''))}
               <div class="flex {m.role === 'user' ? 'justify-end' : 'justify-start'}">
                 <div
                   class="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap break-words"
@@ -327,8 +343,14 @@
           {/if}
           {#if loading}
             <div class="flex justify-start">
-              <div class="rounded-2xl bg-[#F3F4F6] px-4 py-2.5 text-sm text-[#6B7280] animate-pulse">
-                Sto scrivendo…
+              <div
+                class="max-w-[85%] rounded-2xl bg-[#F3F4F6] px-4 py-2.5 text-sm text-[#1A1A1A] whitespace-pre-wrap break-words"
+              >
+                {#if streamPreview}
+                  {streamPreview}<span class="text-[#F5D547] font-bold" aria-hidden="true">▌</span>
+                {:else}
+                  <span class="text-[#6B7280] animate-pulse">Lettura dati aggiornati dall’ERP…</span>
+                {/if}
               </div>
             </div>
           {/if}
