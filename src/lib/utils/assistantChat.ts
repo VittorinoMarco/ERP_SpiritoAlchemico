@@ -6,9 +6,15 @@ const SYSTEM_PROMPT = `Sei l'assistente AI dell'ERP Spirito Alchemico (distiller
 Aiuti con: ordini, clienti, magazzino, fatture, provvigioni, flussi operativi.
 Rispondi sempre in italiano, in modo chiaro e pratico.
 
-IMPORTANTE: riceverai un messaggio di sistema aggiuntivo con etichetta "[Dati ERP — lettura al ...]" contenente numeri ed elenchi aggiornati al momento della domanda.
-Per domande su quantità, elenchi, stati, giacenze, fatture recenti: usa SOLO quei dati come fonte.
-Se l'utente chiede qualcosa di più dettagliato di quanto presente nel riepilogo, spiega che il riepilogo è parziale e indica quale sezione dell'app aprire.`;
+IMPORTANTE: riceverai un messaggio di sistema aggiuntivo con etichetta "[Dati ERP — lettura al ...]" con tabelle Markdown, prezzi (listino / HORECA / e-commerce) e giacenze per riga.
+Per numeri, confronti di fatturato potenziale per canale, quantità in magazzino e ordini recenti: usa SOLO quei dati.
+Se manca un dettaglio nel riepilogo, dillo e indica la pagina dell'app.
+
+FORMATO RISPOSTA (sempre Markdown leggibile):
+- Inizia con una riga breve di sintesi.
+- Usa **elenchi puntati** o **tabelle Markdown** quando confronti canali (diretto/listino vs HORECA vs e-commerce) o elenchi prodotti.
+- Evita muri di testo: sottotitoli ### se la risposta è lunga.
+- Evidenzia numeri chiave in **grassetto**.`;
 
 export type AssistantChatOptions = {
   /** Snapshot testuale da PocketBase (buildAssistantDataSnapshot). */
@@ -47,7 +53,7 @@ export async function sendAssistantChat(
       model: 'gpt-4o-mini',
       messages: buildMessages(messages, options?.dataSnapshot),
       temperature: 0.5,
-      max_tokens: 2000
+      max_tokens: 3500
     })
   });
 
@@ -81,7 +87,7 @@ export async function sendAssistantChatStream(
       model: 'gpt-4o-mini',
       messages: buildMessages(messages, options.dataSnapshot),
       temperature: 0.5,
-      max_tokens: 2000,
+      max_tokens: 3500,
       stream: true
     })
   });

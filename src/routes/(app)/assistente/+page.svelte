@@ -18,6 +18,7 @@
     type StoredChatMessage
   } from '$lib/utils/assistantSessions';
   import { MessageSquare, Plus, Trash2, Sparkles, PanelLeftClose, PanelLeft, AlertCircle } from 'lucide-svelte';
+  import ChatMarkdown from '$lib/components/assistant/ChatMarkdown.svelte';
 
   let sessions: AssistantSession[] = [];
   let activeId = '';
@@ -330,13 +331,18 @@
             {#each messages as m, i (i + m.role + (m.content?.slice(0, 24) ?? ''))}
               <div class="flex {m.role === 'user' ? 'justify-end' : 'justify-start'}">
                 <div
-                  class="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap break-words"
+                  class="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm break-words"
                   class:bg-[#1A1A1A]={m.role === 'user'}
                   class:text-white={m.role === 'user'}
                   class:bg-[#F3F4F6]={m.role === 'assistant'}
                   class:text-[#1A1A1A]={m.role === 'assistant'}
+                  class:whitespace-pre-wrap={m.role === 'user'}
                 >
-                  {m.content}
+                  {#if m.role === 'assistant'}
+                    <ChatMarkdown content={m.content} />
+                  {:else}
+                    {m.content}
+                  {/if}
                 </div>
               </div>
             {/each}
@@ -344,10 +350,17 @@
           {#if loading}
             <div class="flex justify-start">
               <div
-                class="max-w-[85%] rounded-2xl bg-[#F3F4F6] px-4 py-2.5 text-sm text-[#1A1A1A] whitespace-pre-wrap break-words"
+                class="max-w-[85%] rounded-2xl bg-[#F3F4F6] px-4 py-2.5 text-sm text-[#1A1A1A] break-words"
               >
                 {#if streamPreview}
-                  {streamPreview}<span class="text-[#F5D547] font-bold" aria-hidden="true">▌</span>
+                  <div class="flex items-end gap-1 min-w-0">
+                    <div class="min-w-0 flex-1">
+                      <ChatMarkdown content={streamPreview} />
+                    </div>
+                    <span class="text-[#F5D547] font-bold flex-shrink-0 leading-none pb-0.5" aria-hidden="true"
+                      >▌</span
+                    >
+                  </div>
                 {:else}
                   <span class="text-[#6B7280] animate-pulse">Lettura dati aggiornati dall’ERP…</span>
                 {/if}
