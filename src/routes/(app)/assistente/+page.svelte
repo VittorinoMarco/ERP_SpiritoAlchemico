@@ -193,8 +193,11 @@
   <title>Assistente AI | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="flex flex-col gap-4 min-h-[calc(100vh-8rem)]">
-  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+<!-- Altezza fissa sotto la navbar: scroll solo nella colonna messaggi, non sulla pagina -->
+<div
+  class="flex flex-col gap-3 sm:gap-4 min-h-0 h-[calc(100dvh-7.5rem)] max-h-[calc(100dvh-7.5rem)] overflow-hidden"
+>
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 flex-shrink-0">
     <div class="flex items-center gap-3">
       <div
         class="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#F5D547] to-[#FFF8E7] text-[#1A1A1A]"
@@ -232,7 +235,7 @@
 
   {#if collectionMissing || sessionsLoadError}
     <div
-      class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex gap-2 items-start"
+      class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex gap-2 items-start flex-shrink-0"
     >
       <AlertCircle class="h-5 w-5 flex-shrink-0 mt-0.5" />
       <div>
@@ -247,7 +250,7 @@
   {/if}
 
   {#if !apiKey}
-    <Card>
+    <Card className="flex-shrink-0">
       <p class="text-sm text-[#6B7280]">
         Configura la chiave API OpenAI in
         <a href="/impostazioni" class="text-[#F5D547] font-medium underline">Impostazioni</a>
@@ -257,14 +260,14 @@
   {/if}
 
   {#if sessionsLoading}
-    <Card>
+    <Card className="flex-1 min-h-0 flex flex-col justify-center overflow-hidden">
       <p class="text-sm text-[#6B7280] py-8 text-center">Caricamento sessioni…</p>
     </Card>
   {:else}
-    <div class="flex flex-1 gap-4 min-h-0">
+    <div class="flex flex-1 min-h-0 gap-3 sm:gap-4 overflow-hidden">
       {#if sidebarOpen && !collectionMissing}
         <aside
-          class="w-full sm:w-64 flex-shrink-0 flex flex-col rounded-3xl border border-black/5 bg-white/80 shadow-sm overflow-hidden max-h-[420px] sm:max-h-[calc(100vh-14rem)]"
+          class="w-full sm:w-64 flex-shrink-0 flex flex-col rounded-3xl border border-black/5 bg-white/80 shadow-sm overflow-hidden min-h-0 max-h-full sm:max-h-full self-stretch"
         >
           <div class="px-4 py-3 border-b border-black/5 flex items-center gap-2 text-xs font-semibold text-[#6B7280]">
             <MessageSquare class="h-4 w-4" />
@@ -307,8 +310,8 @@
         </aside>
       {/if}
 
-      <Card className="flex-1 flex flex-col min-h-[420px] sm:min-h-[calc(100vh-14rem)] overflow-hidden !p-0">
-        <div class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+      <Card className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden !p-0">
+        <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
           {#if collectionMissing}
             <div class="h-full flex flex-col items-center justify-center text-center py-12 px-4">
               <Sparkles class="h-10 w-10 text-[#E5E7EB] mb-3" />
