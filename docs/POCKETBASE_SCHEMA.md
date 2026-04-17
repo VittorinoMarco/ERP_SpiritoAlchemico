@@ -238,3 +238,77 @@ Variabili d'ambiente:
 - `BACKUP_API_SECRET` - opzionale, per autenticazione alternativa
 
 Nginx: `location /api/backups { proxy_pass http://127.0.0.1:3002; }`
+
+---
+
+## Modulo Task admin (`/tasks`) e allegati
+
+Solo **amministratori** (`role` o `ruolo` = `admin`). L’app usa queste collection solo dopo login admin.
+
+### Collection `admin_tasks`
+
+| Campo | Tipo | Obbligatorio | Note |
+|-------|------|--------------|------|
+| `titolo` | text | sì | |
+| `descrizione` | text (lungo) o editor | no | Descrizione / note interne |
+| `stato` | select | sì | Valori esatti: `backlog`, `da_fare`, `in_corso`, `in_revisione`, `completato`, `annullato` |
+| `priorita` | select | sì | `bassa`, `media`, `alta`, `critica` |
+| `assegnatario` | relation → `users` | no | |
+| `creato_da` | relation → `users` | no | Impostato dall’app in creazione |
+| `scadenza` | date | no | |
+| `inizio` | date | no | Per timeline |
+| `etichette` | json | no | Array di stringhe, es. `["urgente"]` |
+| `ordine_colonna` | number | no | Ordine nella colonna board (default 0) |
+| `parent` | relation → **self** `admin_tasks` | no | Sotto-task |
+
+Abilita **Created** e **Updated**.
+
+### Collection `task_attachments`
+
+| Campo | Tipo | Note |
+|-------|------|------|
+| `task` | relation → `admin_tasks` | obbligatorio |
+| `file` | file | obbligatorio |
+| `caricato_da` | relation → `users` | opzionale |
+
+### API Rules (solo admin) — `admin_tasks` e `task_attachments`
+
+Per **List / View / Create / Update / Delete** su entrambe:
+
+```
+@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.ruolo = "admin")
+```
+
+---
+
+## Modulo Note admin (`/note`)
+
+### Collection `note_folders`
+
+| Campo | Tipo | Note |
+|-------|------|------|
+| `nome` | text | |
+| `genitore` | relation → **self** | opzionale (sottocartelle) |
+| `posizione` | number | ordinamento (default 0) |
+
+### Collection `admin_notes`
+
+| Campo | Tipo | Note |
+|-------|------|------|
+| `titolo` | text | |
+| `corpo` | text lungo | Contenuto (Markdown supportato in app) |
+| `cartella` | relation → `note_folders` | opzionale |
+| `autore` | relation → `users` | l’app imposta alla creazione |
+| `posizione` | number | ordine nella cartella |
+
+### API Rules (solo admin) — `note_folders` e `admin_notes`
+
+Stessa regola admin delle task:
+
+```
+@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.ruolo = "admin")
+```
+
+### Expand `users`
+
+Per mostrare nomi di assegnatario / autore, le **View** sulla collection `users` devono consentire la lettura dei record collegati (come per il resto dell’ERP).

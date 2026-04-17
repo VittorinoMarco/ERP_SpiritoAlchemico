@@ -19,7 +19,9 @@
     Activity,
     X,
     Wallet,
-    Sparkles
+    Sparkles,
+    Kanban,
+    StickyNote
   } from 'lucide-svelte';
   import { pb } from '$lib/pocketbase';
   import { sottoScortaCount } from '$lib/stores/magazzino';
@@ -72,7 +74,9 @@
     | 'attivita'
     | 'impostazioni'
     | 'uscite'
-    | 'assistente';
+    | 'assistente'
+    | 'tasks'
+    | 'note';
 
   type NavItem = {
     id: NavItemId;
@@ -91,7 +95,9 @@
     attivita: Activity,
     impostazioni: Settings,
     uscite: Wallet,
-    assistente: Sparkles
+    assistente: Sparkles,
+    tasks: Kanban,
+    note: StickyNote
   };
 
   export let user:
@@ -112,6 +118,8 @@
     { id: 'uscite', label: 'Uscite' },
     { id: 'analytics', label: 'Analytics' },
     { id: 'assistente', label: 'Assistente AI' },
+    { id: 'tasks', label: 'Task' },
+    { id: 'note', label: 'Note' },
     { id: 'attivita', label: 'Attività' }
   ];
 
@@ -132,7 +140,7 @@
       );
     }
 
-    return allItems;
+    return allItems.filter((item) => item.id !== 'tasks' && item.id !== 'note');
   };
 
   const roleLabel = (role?: Role | null): string => {
@@ -190,11 +198,15 @@
                 ? 'analytics'
                 : path.startsWith('/assistente')
                   ? 'assistente'
-                  : path.startsWith('/attivita')
-                    ? 'attivita'
-                    : path.startsWith('/impostazioni')
-                      ? 'impostazioni'
-                      : 'dashboard';
+                  : path.startsWith('/tasks')
+                    ? 'tasks'
+                    : path.startsWith('/note')
+                      ? 'note'
+                      : path.startsWith('/attivita')
+                        ? 'attivita'
+                        : path.startsWith('/impostazioni')
+                          ? 'impostazioni'
+                          : 'dashboard';
 
   const handleSelect = (id: NavItemId) => {
     moreMenuOpen = false;
@@ -209,6 +221,8 @@
       uscite: '/uscite',
       analytics: '/analytics',
       assistente: '/assistente',
+      tasks: '/tasks',
+      note: '/note',
       attivita: '/attivita',
       impostazioni: '/impostazioni'
     };
