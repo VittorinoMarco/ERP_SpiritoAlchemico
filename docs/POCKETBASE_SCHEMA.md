@@ -312,3 +312,9 @@ Stessa regola admin delle task:
 ### Expand `users`
 
 Per mostrare nomi di assegnatario / autore, le **View** sulla collection `users` devono consentire la lettura dei record collegati (come per il resto dell’ERP).
+
+### Alias campi (compatibilità)
+
+- **`note_folders`**: l’app legge il padre come **`genitore`** o **`parent`**. Per le note, **`cartella`** o **`folder`** verso `note_folders`.
+- **`admin_tasks`**: la relation self per i sotto-task è attesa come **`parent`**; in alternativa l’app accetta anche **`genitore`** in lettura filtri.
+- **Assegnatario**: in salvataggio viene inviato `null` per svuotare la relation; l’elenco utenti usa `sort` su **`email`** e i campi **`nome`**, **`cognome`**, **`email`** (come nel resto dell’ERP).

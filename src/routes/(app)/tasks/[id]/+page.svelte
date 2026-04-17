@@ -13,19 +13,26 @@
     Paperclip,
     ExternalLink,
     Plus,
-    Loader2
+    Loader2,
+    ListTodo,
+    Users,
   } from 'lucide-svelte';
   import type { AdminTask, AdminTaskPriorita, AdminTaskStato, TaskAttachment } from '$lib/types/adminTask';
+  import { taskParentId } from '$lib/utils/adminTaskHelpers';
   import {
     TASK_STATO_LABELS,
     TASK_PRIORITA_LABELS,
-    BOARD_STATO_ORDER
+    BOARD_STATO_ORDER,
+    TASK_PRIORITA_BADGE
   } from '$lib/constants/adminTasks';
+
+  type UserOption = { id: string; label: string };
 
   let task: AdminTask | null = null;
   let attachments: TaskAttachment[] = [];
   let subtasks: AdminTask[] = [];
-  let users: { id: string; name?: string; email?: string }[] = [];
+  let users: UserOption[] = [];
+  let usersLoadError = '';
   let loading = true;
   let saving = false;
   let error = '';
@@ -51,13 +58,43 @@
   }
 
   async function loadUsers() {
+    usersLoadError = '';
     try {
-      const list = await pb.collection('users').getFullList<{ id: string; name?: string; email?: string }>({
-        sort: 'name'
+      const list = await pb.collection('users').getFullList({
+        sort: '+email',
+        fields: 'id,email,nome,cognome,username,name'
       });
-      users = list;
-    } catch {
+      users = (list as Record<string, unknown>[]).map((u) => {
+        const nome = u.nome as string | undefined;
+        const cognome = u.cognome as string | undefined;
+        const full = [nome, cognome].filter(Boolean).join(' ').trim();
+        const label =
+          full ||
+          (u.name as string) ||
+          (u.username as string) ||
+          (u.email as string) ||
+          String(u.id);
+        return { id: String(u.id), label };
+      });
+    } catch (e) {
+      usersLoadError =
+        e instanceof Error ? e.message : 'Impossibile caricare l’elenco utenti (controlla le regole API su `users`).';
       users = [];
+    }
+  }
+
+  async function loadSubtasks(): Promise<AdminTask[]> {
+    try {
+      return await pb.collection('admin_tasks').getFullList<AdminTask>({
+        filter: `parent = "${taskId}"`,
+        sort: 'priorita,-created',
+        expand: 'assegnatario'
+      });
+    } catch {
+      const all = await pb.collection('admin_tasks').getFullList<AdminTask>({
+        expand: 'assegnatario'
+      });
+      return all.filter((t) => taskParentId(t) === taskId);
     }
   }
 
@@ -86,11 +123,7 @@
           sort: '-created',
           expand: 'caricato_da'
         }),
-        pb.collection('admin_tasks').getFullList<AdminTask>({
-          filter: `parent = "${taskId}"`,
-          sort: 'priorita,-created',
-          expand: 'assegnatario'
-        })
+        loadSubtasks()
       ]);
       attachments = att;
       subtasks = subs;
@@ -111,16 +144,17 @@
     saving = true;
     error = '';
     try {
-      await pb.collection('admin_tasks').update(task.id, {
+      const payload: Record<string, unknown> = {
         titolo,
         descrizione: descrizione || undefined,
         stato,
         priorita,
-        assegnatario: assegnatario || undefined,
         scadenza: scadenza || undefined,
         inizio: inizio || undefined,
         etichette: parseEtichette(etichetteRaw)
-      });
+      };
+      payload.assegnatario = assegnatario ? assegnatario : null;
+      await pb.collection('admin_tasks').update(task.id, payload);
       await load();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Salvataggio fallito';
@@ -200,6 +234,12 @@
     }
   }
 
+  function subtaskAssigneeLabel(s: AdminTask): string {
+    const u = s.expand?.assegnatario;
+    if (!u) return '';
+    return (u as { name?: string; email?: string }).name || (u as { email?: string }).email || '';
+  }
+
   onMount(() => {
     loadUsers();
   });
@@ -213,27 +253,29 @@
   <title>{task?.titolo ?? 'Task'} | ERP</title>
 </svelte:head>
 
-<div class="max-w-3xl mx-auto space-y-4 pb-24">
-  <div class="flex items-center gap-3 flex-wrap">
-    <Button variant="ghost" size="sm" className="!px-2" onclick={() => goto('/tasks')}>
+<div class="max-w-6xl mx-auto space-y-4 pb-24 px-1 sm:px-0">
+  <div class="flex items-start gap-3 flex-wrap">
+    <Button variant="ghost" size="sm" className="!px-2 min-h-[44px] min-w-[44px]" onclick={() => goto('/tasks')}>
       <ArrowLeft class="h-4 w-4" />
     </Button>
-    <h1 class="text-xl font-bold text-[#1A1A1A] flex-1 min-w-0 truncate">
-      {task?.titolo ?? 'Task'}
-    </h1>
+    <div class="flex-1 min-w-0">
+      <h1 class="text-xl sm:text-2xl font-bold text-[#1A1A1A] break-words">
+        {task?.titolo ?? 'Task'}
+      </h1>
+      {#if task?.parent}
+        <p class="text-sm text-[#6B7280] mt-1">
+          Sotto-task ·
+          <button
+            type="button"
+            class="text-[#B8860B] font-medium underline underline-offset-2"
+            onclick={() => goto(`/tasks/${task.parent}`)}
+          >
+            Apri task principale
+          </button>
+        </p>
+      {/if}
+    </div>
   </div>
-  {#if task?.parent}
-    <p class="text-sm text-[#6B7280]">
-      Sotto-task di
-      <button
-        type="button"
-        class="text-[#F5D547] font-medium underline"
-        onclick={() => goto(`/tasks/${task.parent}`)}
-      >
-        apri task padre
-      </button>
-    </p>
-  {/if}
 
   {#if collectionMissing}
     <Card>
@@ -243,8 +285,8 @@
       </p>
     </Card>
   {:else if loading}
-    <div class="flex justify-center py-12 text-[#6B7280]">
-      <Loader2 class="h-8 w-8 animate-spin" />
+    <div class="flex justify-center py-16 text-[#6B7280]">
+      <Loader2 class="h-10 w-10 animate-spin" />
     </div>
   {:else if !task}
     <Card><p class="text-sm text-[#6B7280]">Task non trovata.</p></Card>
@@ -252,141 +294,181 @@
     {#if error}
       <p class="text-sm text-rose-600">{error}</p>
     {/if}
+    {#if usersLoadError}
+      <p class="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">{usersLoadError}</p>
+    {/if}
 
-    <Card>
-      <div class="space-y-4">
-        <Input label="Titolo" bind:value={titolo} />
-        <div>
-          <label class="block text-xs font-medium text-[#6B7280] mb-1" for="desc">Descrizione</label>
-          <textarea
-            id="desc"
-            rows="6"
-            class="w-full rounded-2xl border border-black/10 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#F5D547]"
-            bind:value={descrizione}
-          ></textarea>
-        </div>
-        <div class="grid sm:grid-cols-2 gap-4">
-          <div>
-            <label class="block text-xs font-medium text-[#6B7280] mb-1" for="stato">Stato</label>
-            <select
-              id="stato"
-              class="w-full rounded-2xl border border-black/10 px-4 py-2.5 text-sm"
-              bind:value={stato}
-            >
-              {#each BOARD_STATO_ORDER as s}
-                <option value={s}>{TASK_STATO_LABELS[s]}</option>
-              {/each}
-            </select>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6 lg:items-start">
+      <!-- Colonna sinistra: dettaglio -->
+      <div class="space-y-4 min-w-0">
+        <Card>
+          <div class="space-y-4">
+            <Input id="task-titolo" label="Titolo" bind:value={titolo} />
+            <div>
+              <label class="block text-xs font-medium text-[#6B7280] mb-1" for="desc">Descrizione</label>
+              <textarea
+                id="desc"
+                rows="8"
+                class="w-full rounded-2xl border border-black/10 px-4 py-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#F5D547] min-h-[160px]"
+                bind:value={descrizione}
+                placeholder="Dettagli, criteri di accettazione, link…"
+              ></textarea>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-medium text-[#6B7280] mb-1" for="stato">Stato</label>
+                <select
+                  id="stato"
+                  class="w-full rounded-2xl border border-black/10 px-4 py-2.5 text-sm min-h-[44px] bg-white"
+                  bind:value={stato}
+                >
+                  {#each BOARD_STATO_ORDER as s}
+                    <option value={s}>{TASK_STATO_LABELS[s]}</option>
+                  {/each}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-[#6B7280] mb-1" for="pri">Priorità</label>
+                <select
+                  id="pri"
+                  class="w-full rounded-2xl border border-black/10 px-4 py-2.5 text-sm min-h-[44px] bg-white"
+                  bind:value={priorita}
+                >
+                  {#each ['bassa', 'media', 'alta', 'critica'] as p}
+                    <option value={p}>{TASK_PRIORITA_LABELS[p as AdminTaskPriorita]}</option>
+                  {/each}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="flex items-center gap-2 text-xs font-medium text-[#6B7280] mb-1" for="ass">
+                <Users class="h-3.5 w-3.5" /> Assegnatario
+              </label>
+              <select
+                id="ass"
+                class="w-full rounded-2xl border border-black/10 px-4 py-2.5 text-sm min-h-[44px] bg-white"
+                bind:value={assegnatario}
+              >
+                <option value="">— Nessuno —</option>
+                {#each users as u}
+                  <option value={u.id}>{u.label}</option>
+                {/each}
+              </select>
+              {#if users.length === 0 && !usersLoadError}
+                <p class="text-[10px] text-amber-700 mt-1">Nessun utente in elenco.</p>
+              {/if}
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input id="task-inizio" type="date" label="Inizio" bind:value={inizio} />
+              <Input id="task-scadenza" type="date" label="Scadenza" bind:value={scadenza} />
+            </div>
+            <Input label="Etichette (separate da virgola)" bind:value={etichetteRaw} />
+            <div class="flex gap-2 flex-wrap pt-1">
+              <Button variant="primary" size="sm" onclick={save} disabled={saving}>
+                {#if saving}
+                  <Loader2 class="h-4 w-4 animate-spin" />
+                {:else}
+                  Salva modifiche
+                {/if}
+              </Button>
+            </div>
           </div>
-          <div>
-            <label class="block text-xs font-medium text-[#6B7280] mb-1" for="pri">Priorità</label>
-            <select id="pri" class="w-full rounded-2xl border border-black/10 px-4 py-2.5 text-sm" bind:value={priorita}>
-              {#each ['bassa', 'media', 'alta', 'critica'] as p}
-                <option value={p}>{TASK_PRIORITA_LABELS[p as AdminTaskPriorita]}</option>
-              {/each}
-            </select>
+        </Card>
+      </div>
+
+      <!-- Colonna destra: sotto-task + allegati -->
+      <div class="space-y-4 min-w-0">
+        <Card className="!p-0 overflow-hidden border-[#F5D547]/30">
+          <div class="px-4 py-3 bg-gradient-to-r from-[#FFF9E6] to-white border-b border-black/5 flex items-center justify-between gap-2 flex-wrap">
+            <h2 class="text-sm font-semibold text-[#1A1A1A] flex items-center gap-2">
+              <ListTodo class="h-4 w-4 text-[#B8860B]" />
+              Sotto-task
+            </h2>
+            <Button variant="secondary" size="sm" onclick={addSubtask} disabled={saving}>
+              <Plus class="h-4 w-4" /> Aggiungi
+            </Button>
           </div>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-[#6B7280] mb-1" for="ass">Assegnatario</label>
-          <select
-            id="ass"
-            class="w-full rounded-2xl border border-black/10 px-4 py-2.5 text-sm"
-            bind:value={assegnatario}
-          >
-            <option value="">— Nessuno —</option>
-            {#each users as u}
-              <option value={u.id}>{u.name || u.email || u.id}</option>
+          <ul class="divide-y divide-black/5 max-h-[min(50vh,420px)] overflow-y-auto">
+            {#each subtasks as s}
+              <li>
+                <button
+                  type="button"
+                  class="w-full text-left px-4 py-3 text-sm hover:bg-[#FFFBF0] transition-colors flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-3 min-h-[52px]"
+                  onclick={() => goto(`/tasks/${s.id}`)}
+                >
+                  <span class="font-medium text-[#1A1A1A] line-clamp-2">{s.titolo}</span>
+                  <span class="flex flex-wrap items-center gap-2 flex-shrink-0">
+                    <span
+                      class="text-[10px] px-2 py-0.5 rounded-full {TASK_PRIORITA_BADGE[
+                        s.priorita as AdminTaskPriorita
+                      ]}"
+                    >
+                      {TASK_PRIORITA_LABELS[s.priorita as AdminTaskPriorita]}
+                    </span>
+                    <span class="text-xs text-[#6B7280]">{TASK_STATO_LABELS[s.stato as AdminTaskStato]}</span>
+                    {#if subtaskAssigneeLabel(s)}
+                      <span class="text-[10px] text-[#9CA3AF] truncate max-w-[120px]">{subtaskAssigneeLabel(s)}</span>
+                    {/if}
+                  </span>
+                </button>
+              </li>
+            {:else}
+              <li class="px-4 py-8 text-sm text-[#6B7280] text-center">Nessun sotto-task. Aggiungine uno per suddividere il lavoro.</li>
             {/each}
-          </select>
-        </div>
-        <div class="grid sm:grid-cols-2 gap-4">
-          <Input id="task-inizio" type="date" label="Inizio" bind:value={inizio} />
-          <Input id="task-scadenza" type="date" label="Scadenza" bind:value={scadenza} />
-        </div>
-        <Input label="Etichette (separate da virgola)" bind:value={etichetteRaw} />
-        <div class="flex gap-2 flex-wrap">
-          <Button variant="primary" size="sm" onclick={save} disabled={saving}>
-            {#if saving}
-              <Loader2 class="h-4 w-4 animate-spin" />
-            {/if}
-            Salva
+          </ul>
+        </Card>
+
+        <Card>
+          <h2 class="text-sm font-semibold text-[#1A1A1A] mb-3 flex items-center gap-2">
+            <Paperclip class="h-4 w-4" /> Allegati
+          </h2>
+          <div class="flex flex-wrap gap-2 mb-4">
+            {#each attachments as a}
+              <div
+                class="flex items-center gap-2 rounded-xl bg-[#F3F4F6] px-3 py-2 text-sm max-w-full"
+              >
+                <a
+                  href={attachmentUrl(a)}
+                  target="_blank"
+                  rel="noreferrer"
+                  class="text-[#1A1A1A] underline flex items-center gap-1 truncate min-w-0"
+                >
+                  Scarica <ExternalLink class="h-3 w-3 flex-shrink-0" />
+                </a>
+                <button
+                  type="button"
+                  class="text-rose-600 p-1.5 min-w-[40px] min-h-[40px] flex items-center justify-center"
+                  onclick={() => removeAttachment(a.id)}
+                  aria-label="Elimina allegato"
+                >
+                  <Trash2 class="h-4 w-4" />
+                </button>
+              </div>
+            {:else}
+              <p class="text-sm text-[#6B7280] w-full">Nessun allegato.</p>
+            {/each}
+          </div>
+          <div class="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-end gap-3">
+            <label class="flex-1 min-w-0">
+              <span class="sr-only">Scegli file</span>
+              <input
+                type="file"
+                class="block w-full text-sm text-[#6B7280] file:mr-3 file:rounded-xl file:border-0 file:bg-[#FFF3CD] file:px-4 file:py-2 file:text-sm file:font-medium file:text-[#1A1A1A]"
+                bind:files={fileInput}
+              />
+            </label>
+            <Button variant="secondary" size="sm" onclick={uploadAttachment} disabled={saving || !fileInput?.[0]}>
+              Carica file
+            </Button>
+          </div>
+        </Card>
+
+        <div class="flex justify-end pt-2">
+          <Button variant="ghost" size="sm" className="!text-rose-600" onclick={deleteTask}>
+            <Trash2 class="h-4 w-4" /> Elimina task
           </Button>
         </div>
       </div>
-    </Card>
-
-    <Card>
-      <h2 class="text-sm font-semibold text-[#1A1A1A] mb-3 flex items-center gap-2">
-        <Paperclip class="h-4 w-4" /> Allegati
-      </h2>
-      <div class="flex flex-wrap gap-2 mb-3">
-        {#each attachments as a}
-          <div
-            class="flex items-center gap-2 rounded-xl bg-[#F3F4F6] px-3 py-2 text-sm"
-          >
-            <a
-              href={attachmentUrl(a)}
-              target="_blank"
-              rel="noreferrer"
-              class="text-[#1A1A1A] underline flex items-center gap-1"
-            >
-              File <ExternalLink class="h-3 w-3" />
-            </a>
-            <button
-              type="button"
-              class="text-rose-600 p-1"
-              onclick={() => removeAttachment(a.id)}
-              aria-label="Elimina allegato"
-            >
-              <Trash2 class="h-4 w-4" />
-            </button>
-          </div>
-        {:else}
-          <p class="text-sm text-[#6B7280]">Nessun allegato.</p>
-        {/each}
-      </div>
-      <div class="flex flex-wrap items-end gap-2">
-        <input
-          type="file"
-          class="text-sm"
-          bind:files={fileInput}
-        />
-        <Button variant="secondary" size="sm" onclick={uploadAttachment} disabled={saving || !fileInput?.[0]}>
-          Carica
-        </Button>
-      </div>
-    </Card>
-
-    <Card>
-      <div class="flex items-center justify-between gap-2 mb-3">
-        <h2 class="text-sm font-semibold text-[#1A1A1A]">Sotto-task</h2>
-        <Button variant="secondary" size="sm" onclick={addSubtask}>
-          <Plus class="h-4 w-4" /> Nuovo
-        </Button>
-      </div>
-      <ul class="space-y-2">
-        {#each subtasks as s}
-          <li>
-            <button
-              type="button"
-              class="w-full text-left rounded-xl border border-black/5 px-3 py-2 text-sm hover:bg-[#FFFBF0] transition-colors"
-              onclick={() => goto(`/tasks/${s.id}`)}
-            >
-              <span class="font-medium text-[#1A1A1A]">{s.titolo}</span>
-              <span class="text-[#6B7280] ml-2">{TASK_STATO_LABELS[s.stato as AdminTaskStato]}</span>
-            </button>
-          </li>
-        {:else}
-          <li class="text-sm text-[#6B7280]">Nessun sotto-task.</li>
-        {/each}
-      </ul>
-    </Card>
-
-    <div class="flex justify-end">
-      <Button variant="ghost" size="sm" className="!text-rose-600" onclick={deleteTask}>
-        <Trash2 class="h-4 w-4" /> Elimina task
-      </Button>
     </div>
   {/if}
 </div>

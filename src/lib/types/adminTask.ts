@@ -22,6 +22,8 @@ export interface AdminTask extends RecordModel {
   etichette?: string[];
   ordine_colonna?: number;
   parent?: string;
+  /** Se in PocketBase la self-relation ha altro nome (es. legacy). */
+  genitore?: string;
   expand?: {
     assegnatario?: { id: string; name?: string; email?: string };
     creato_da?: { id: string; name?: string; email?: string };
