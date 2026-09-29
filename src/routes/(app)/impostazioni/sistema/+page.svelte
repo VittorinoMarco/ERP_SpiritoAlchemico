@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { pb } from '$lib/pocketbase';
@@ -263,22 +264,16 @@
   <title>Sistema | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-6">
-  <div class="flex items-center gap-4">
-    <button
-      type="button"
-      class="inline-flex items-center gap-1 text-sm text-[#6B7280] hover:text-[#1A1A1A] transition-colors"
-      onclick={() => goto('/impostazioni')}
-    >
-      <ChevronLeft class="h-4 w-4" />
-      Impostazioni
-    </button>
-  </div>
-
-  <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight flex items-center gap-2">
-    <Server class="h-8 w-8" />
-    Sistema
-  </h1>
+<div class="space-y-5 fade-in max-w-4xl">
+  <button
+    type="button"
+    class="inline-flex items-center gap-1 text-sm text-[#6B7280] hover:text-[#1A1A1A] transition-colors min-h-[44px]"
+    onclick={() => goto('/impostazioni')}
+  >
+    <ChevronLeft class="h-4 w-4" />
+    Impostazioni
+  </button>
+  <PageHeader titolo="Sistema" sottotitolo="Info di sistema, backup ed export dei dati." />
 
   {#if isAdmin}
     {#if error}
@@ -351,7 +346,7 @@
             type="url"
             bind:value={backupApiUrl}
             placeholder="https://tuodominio.com/api"
-            class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+            class="field w-full"
           />
         </div>
         <div>
@@ -361,7 +356,7 @@
             type="password"
             bind:value={backupApiSecret}
             placeholder="BACKUP_API_SECRET"
-            class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+            class="field w-full"
           />
         </div>
         <Button

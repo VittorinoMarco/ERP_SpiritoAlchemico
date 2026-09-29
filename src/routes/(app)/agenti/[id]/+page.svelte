@@ -1,9 +1,12 @@
 <script lang="ts">
+  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import { ymdLocal } from '$lib/utils/format';
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { pb } from '$lib/pocketbase';
+  import { logAudit } from '$lib/utils/audit';
   import Card from '$lib/components/ui/Card.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
@@ -33,6 +36,7 @@
     cognome?: string;
     email?: string;
     provvigione_percentuale?: number;
+    agente_padre?: string;
   } | null = null;
   let clients: { id: string; ragione_sociale?: string }[] = [];
   let orders: { id: string; numero_ordine?: string; data_ordine?: string; totale?: number; stato?: string }[] = [];
@@ -41,6 +45,8 @@
   let activeTab: TabId = 'overview';
   let configModalOpen = false;
   let provvigionePercentuale = '';
+  let agentePadreId = '';
+  let otherAgents: { id: string; nome?: string; cognome?: string; email?: string }[] = [];
   let savingConfig = false;
   let liquidateModalOpen = false;
   let liquidateDate = '';
@@ -57,7 +63,7 @@
   let fallbackDisplayName = '';
   let fallbackEmail = '';
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = ymdLocal(new Date());
 
   function nameFromUserRecord(u: Record<string, unknown> | null | undefined): string {
     if (!u) return '';
@@ -269,6 +275,20 @@
         agent = profileRow as typeof agent;
       }
       provvigionePercentuale = String(agent?.provvigione_percentuale ?? 0);
+      const ap = agent?.agente_padre as unknown;
+      agentePadreId =
+        typeof ap === 'string'
+          ? ap
+          : ap && typeof ap === 'object' && ap && 'id' in (ap as object)
+            ? String((ap as { id: string }).id)
+            : '';
+      try {
+        otherAgents = await pb.collection('users').getFullList({
+          filter: `ruolo = "agente" && id != "${agentId}"`
+        });
+      } catch {
+        otherAgents = [];
+      }
 
       const [clientsResult, ordersResult, commResult] = await Promise.allSettled([
         pb.collection('clients').getFullList({ filter: `agente = "${agentId}"` }),
@@ -341,7 +361,21 @@
     if (isNaN(pct) || pct < 0 || pct > 100) return;
     savingConfig = true;
     try {
-      await pb.collection('users').update(agentId, { provvigione_percentuale: pct });
+      const prima = Number(agent?.provvigione_percentuale) || 0;
+      await pb.collection('users').update(agentId, {
+        provvigione_percentuale: pct,
+        agente_padre: agentePadreId || null
+      });
+      if (prima !== pct) {
+        await logAudit(pb, {
+          azione: 'provvigione_percentuale_modificata',
+          collection: 'users',
+          recordId: agentId,
+          messaggio: `Percentuale provvigione da ${prima}% a ${pct}% (vale solo per gli ordini futuri)`,
+          prima,
+          dopo: pct
+        });
+      }
       agent = await pb.collection('users').getOne(agentId) as typeof agent;
       configModalOpen = false;
     } catch (e) {
@@ -359,12 +393,28 @@
         : maturate.filter((c) => (liquidateTarget as string[]).includes(c.id));
     if (toLiquidate.length === 0) return;
     liquidating = true;
+    const liquidate_ok: { id: string; importo: number }[] = [];
     try {
-      for (const c of toLiquidate) {
-        await pb.collection('agent_commissions').update(c.id, {
-          stato: 'liquidata',
-          data_liquidazione: liquidateDate
-        });
+      try {
+        for (const c of toLiquidate) {
+          await pb.collection('agent_commissions').update(c.id, {
+            stato: 'liquidata',
+            data_liquidazione: liquidateDate
+          });
+          liquidate_ok.push({ id: c.id, importo: Number(c.importo) || 0 });
+        }
+      } finally {
+        if (liquidate_ok.length > 0) {
+          await logAudit(pb, {
+            azione: 'provvigioni_liquidate',
+            collection: 'agent_commissions',
+            recordId: agentId,
+            messaggio: `Liquidate ${liquidate_ok.length} provvigioni (${formatEuro(
+              liquidate_ok.reduce((s, x) => s + x.importo, 0)
+            )}) con data ${liquidateDate}`,
+            dopo: liquidate_ok
+          });
+        }
       }
       let commList: any[];
       try {
@@ -431,7 +481,16 @@
     if (!selectedClientToAdd || addingClient) return;
     addingClient = true;
     try {
+      const prev = (availableClients as any[]).find((c) => c.id === selectedClientToAdd);
       await pb.collection('clients').update(selectedClientToAdd, { agente: agentId });
+      await logAudit(pb, {
+        azione: 'cliente_assegnato',
+        collection: 'clients',
+        recordId: selectedClientToAdd,
+        messaggio: 'Cliente assegnato ad agente',
+        prima: prev?.agente ?? '',
+        dopo: agentId
+      });
       const updated = await pb.collection('clients').getFullList({ filter: `agente = "${agentId}"` });
       clients = updated;
       addClientModalOpen = false;
@@ -447,6 +506,14 @@
     removingClientId = clientId;
     try {
       await pb.collection('clients').update(clientId, { agente: '' });
+      await logAudit(pb, {
+        azione: 'cliente_disassegnato',
+        collection: 'clients',
+        recordId: clientId,
+        messaggio: 'Cliente rimosso dall’agente',
+        prima: agentId,
+        dopo: ''
+      });
       clients = clients.filter((c) => c.id !== clientId);
     } catch (e) {
       console.error(e);
@@ -460,18 +527,18 @@
   <title>Agente {agentName()} | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-6">
-  <div class="flex items-center gap-4">
+<div class="space-y-5 fade-in">
+  <div class="flex items-center gap-3">
     <button
       type="button"
-      class="p-2 rounded-2xl text-[#6B7280] hover:bg-black/5 transition-colors"
+      class="h-11 w-11 grid place-items-center rounded-2xl bg-white/80 border border-black/[0.06] hover:bg-white shrink-0"
       onclick={() => goto('/agenti')}
       aria-label="Indietro"
     >
       <ArrowLeft class="h-5 w-5" />
     </button>
-    <div class="flex-1">
-      <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">{agentName()}</h1>
+    <div class="flex-1 min-w-0">
+      <h1 class="text-xl sm:text-3xl font-bold tracking-tight truncate">{agentName()}</h1>
       <p class="text-sm text-[#6B7280] mt-0.5">{agentSubtitleEmail() || '—'}</p>
     </div>
     <Button
@@ -489,11 +556,7 @@
   </div>
 
   {#if loading}
-    <Card>
-      <div class="py-16 text-center">
-        <p class="text-sm text-[#6B7280]">Caricamento...</p>
-      </div>
-    </Card>
+    <Spinner />
   {:else if !agent}
     <Card>
       <div class="py-16 text-center">
@@ -527,18 +590,14 @@
     <div class="flex gap-2">
       <button
         type="button"
-        class="rounded-full px-5 py-2.5 text-sm font-medium transition-all {activeTab === 'overview'
-          ? 'bg-[#F5D547] text-[#1A1A1A]'
-          : 'bg-[#E5E7EB] text-[#6B7280] hover:bg-[#D1D5DB]'}"
+        class="chip {activeTab === 'overview' ? 'chip-active' : ''}"
         onclick={() => (activeTab = 'overview')}
       >
         Panoramica
       </button>
       <button
         type="button"
-        class="rounded-full px-5 py-2.5 text-sm font-medium transition-all {activeTab === 'provvigioni'
-          ? 'bg-[#F5D547] text-[#1A1A1A]'
-          : 'bg-[#E5E7EB] text-[#6B7280] hover:bg-[#D1D5DB]'}"
+        class="chip {activeTab === 'provvigioni' ? 'chip-active' : ''}"
         onclick={() => (activeTab = 'provvigioni')}
       >
         Provvigioni
@@ -546,7 +605,7 @@
     </div>
 
     {#if activeTab === 'overview'}
-      <div class="grid gap-6 lg:grid-cols-3">
+      <div class="grid gap-5 lg:grid-cols-3">
         <Card>
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-sm font-medium text-[#1A1A1A]">Clienti assegnati</h2>
@@ -631,8 +690,9 @@
     {#if activeTab === 'provvigioni'}
       <Card>
         <p class="text-sm text-[#6B7280] mb-4">
-          <strong class="text-[#1A1A1A]">Una provvigione per ordine.</strong> L’importo è calcolato sull’
-          <strong>imponibile totale dell’ordine</strong> (totale con IVA ÷ 1,22 oppure campo imponibile), non sulle singole righe prodotto.
+          <strong class="text-[#1A1A1A]">Una provvigione per ordine, all’incasso.</strong>
+          Matura quando la fattura (non la proforma) è <strong>pagata</strong>.
+          Piramide: se ha un agente padre, la sua % è tolta da quella del padre (non si somma).
         </p>
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div class="flex flex-wrap gap-4">
@@ -779,8 +839,20 @@
         max="100"
         step="0.5"
         bind:value={provvigionePercentuale}
-        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+        class="field w-full"
       />
+      <p class="mt-2 text-xs text-[#6B7280]">
+        Se è un subagente, questa % è la sua quota sull’imponibile, tolta da quella dell’agente padre (piramide, non extra).
+      </p>
+    </div>
+    <div>
+      <label for="padre" class="block text-sm font-medium text-[#1A1A1A] mb-2">Agente padre (subagente)</label>
+      <select id="padre" bind:value={agentePadreId} class="field w-full">
+        <option value="">Nessuno — è un agente diretto</option>
+        {#each otherAgents as a}
+          <option value={a.id}>{[a.nome, a.cognome].filter(Boolean).join(' ') || a.email}</option>
+        {/each}
+      </select>
     </div>
     <div class="flex justify-end gap-3">
       <Button type="button" variant="ghost" onclick={() => (configModalOpen = false)}>
@@ -808,7 +880,7 @@
       <select
         id="client_select"
         bind:value={selectedClientToAdd}
-        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+        class="field w-full"
       >
         <option value="">— Seleziona —</option>
         {#each availableClients as c}
@@ -857,7 +929,7 @@
         type="date"
         bind:value={liquidateDate}
         required
-        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+        class="field w-full"
       />
     </div>
     <div class="flex justify-end gap-3">

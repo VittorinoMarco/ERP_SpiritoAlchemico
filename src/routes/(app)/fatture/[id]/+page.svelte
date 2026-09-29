@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import { ymdLocal } from '$lib/utils/format';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
@@ -6,11 +8,15 @@
   import Card from '$lib/components/ui/Card.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
-  import { ArrowLeft, FileDown, CheckCircle } from 'lucide-svelte';
+  import { ArrowLeft, FileDown, CheckCircle, FileText } from 'lucide-svelte';
   import type { Invoice, InvoiceStato } from '$lib/types/invoice';
-  import { STATO_LABELS, STATO_BADGE_COLORS } from '$lib/types/invoice';
+  import { STATO_LABELS, STATO_BADGE_COLORS, TIPO_LABELS } from '$lib/types/invoice';
   import type { OrderItem } from '$lib/types/order';
   import { generateInvoicePdf } from '$lib/utils/pdfInvoice';
+  import { ensureCommissionOnInvoicePaid } from '$lib/utils/commissions';
+  import { logAudit } from '$lib/utils/audit';
+  import { nextDocumentNumber, isProforma } from '$lib/utils/documents';
+  import { getCompanyProfile, companyReadyForFatturaPA, type CompanyProfile } from '$lib/utils/companyProfile';
 
   const invoiceId = $page.params.id;
 
@@ -40,21 +46,38 @@
   let pagamentoModalOpen = false;
   let dataPagamento = '';
   let saving = false;
+  let payNotice = '';
+  let converting = false;
+  let company: CompanyProfile | null = null;
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = ymdLocal(new Date());
 
-  $: isScaduta = invoice && invoice.data_scadenza < today && invoice.stato !== 'pagata';
+  $: isProformaDoc = isProforma(invoice);
+  $: isScaduta =
+    invoice &&
+    !isProformaDoc &&
+    invoice.stato !== 'pagata' &&
+    invoice.stato !== 'convertita' &&
+    invoice.data_scadenza < today;
 
   onMount(async () => {
     try {
       invoice = await pb.collection('invoices').getOne(invoiceId, {
         expand: 'cliente,ordine'
       });
+      company = await getCompanyProfile(pb);
       if (invoice?.ordine) {
         orderItems = await pb.collection('order_items').getFullList({
           filter: `ordine = "${invoice.ordine}"`,
           expand: 'prodotto'
         });
+      }
+      if (invoice?.stato === 'pagata') {
+        try {
+          await ensureCommissionOnInvoicePaid(pb, invoice);
+        } catch (e) {
+          console.error('Backfill provvigione all\'incasso', e);
+        }
       }
     } catch {
       invoice = null;
@@ -72,6 +95,24 @@
         stato: 'pagata',
         data_pagamento: dataPagamento
       }) as typeof invoice;
+      try {
+        const rows = await ensureCommissionOnInvoicePaid(pb, invoice);
+        const created = (rows ?? []).filter((x) => x.created);
+        if (created.length) {
+          await logAudit(pb, {
+            azione: 'provvigione_maturata',
+            collection: 'agent_commissions',
+            recordId: invoice.ordine,
+            messaggio: `Provvigione/i all'incasso ${invoice.numero_fattura}: ${created
+              .map((x) => `${x.percentuale}% = ${x.importo}`)
+              .join('; ')}`
+          });
+        }
+      } catch (e) {
+        console.error('Provvigione all\'incasso non creata', e);
+        payNotice =
+          'Fattura segnata pagata, ma la provvigione non è stata creata. Riapri questa pagina oppure verifica che l’ordine abbia un agente con percentuale > 0.';
+      }
       pagamentoModalOpen = false;
       dataPagamento = '';
     } catch (e) {
@@ -100,24 +141,70 @@
         totale_riga: invoice.totale ?? 0
       });
     }
-    generateInvoicePdf({
-      numero_fattura: invoice.numero_fattura ?? '—',
-      data_emissione: formatDateShort(invoice.data_emissione),
-      data_scadenza: formatDateShort(invoice.data_scadenza),
-      cliente: {
-        ragione_sociale: cliente?.ragione_sociale ?? '—',
-        partita_iva: cliente?.partita_iva,
-        codice_fiscale: cliente?.codice_fiscale,
-        indirizzo: cliente?.indirizzo,
-        citta: cliente?.citta,
-        cap: cliente?.cap,
-        provincia: cliente?.provincia
+    generateInvoicePdf(
+      {
+        numero_fattura: invoice.numero_fattura ?? '—',
+        data_emissione: formatDateShort(invoice.data_emissione),
+        data_scadenza: formatDateShort(invoice.data_scadenza),
+        cliente: {
+          ragione_sociale: cliente?.ragione_sociale ?? '—',
+          partita_iva: cliente?.partita_iva,
+          codice_fiscale: cliente?.codice_fiscale,
+          indirizzo: cliente?.indirizzo,
+          citta: cliente?.citta,
+          cap: cliente?.cap,
+          provincia: cliente?.provincia
+        },
+        righe,
+        totale_imponibile: invoice.totale_imponibile ?? 0,
+        iva: invoice.iva ?? 0,
+        totale: invoice.totale ?? 0,
+        kind: isProforma(invoice) ? 'proforma' : 'gestionale'
       },
-      righe,
-      totale_imponibile: invoice.totale_imponibile ?? 0,
-      iva: invoice.iva ?? 0,
-      totale: invoice.totale ?? 0
-    });
+      {
+        ragione_sociale: company?.ragione_sociale || 'Spirito Alchemico',
+        indirizzo: company?.indirizzo,
+        citta: company?.citta,
+        cap: company?.cap,
+        provincia: company?.provincia,
+        partita_iva: company?.partita_iva,
+        codice_fiscale: company?.codice_fiscale
+      }
+    );
+  }
+
+  async function convertiInFattura() {
+    if (!invoice || converting || !isProforma(invoice) || invoice.stato === 'convertita') return;
+    converting = true;
+    payNotice = '';
+    try {
+      const fatt = await pb.collection('invoices').create({
+        numero_fattura: await nextDocumentNumber(pb, 'FAT'),
+        ordine: invoice.ordine,
+        cliente: invoice.cliente,
+        data_emissione: ymdLocal(new Date()),
+        data_scadenza: invoice.data_scadenza,
+        totale_imponibile: invoice.totale_imponibile,
+        iva: invoice.iva,
+        totale: invoice.totale,
+        stato: 'emessa',
+        tipo: 'fattura',
+        proforma_origine: invoice.id
+      });
+      invoice = await pb.collection('invoices').update(invoiceId, { stato: 'convertita' }) as typeof invoice;
+      await logAudit(pb, {
+        azione: 'proforma_convertita',
+        collection: 'invoices',
+        recordId: fatt.id,
+        messaggio: `Proforma ${invoice.numero_fattura} → fattura ${(fatt as Invoice).numero_fattura}`
+      });
+      goto(`/fatture/${fatt.id}`);
+    } catch (e) {
+      console.error(e);
+      payNotice = 'Conversione non riuscita. Controlla che lo schema invoices abbia i campi tipo e proforma_origine.';
+    } finally {
+      converting = false;
+    }
   }
 
   function formatDate(s: string | null | undefined): string {
@@ -155,27 +242,37 @@
   <title>Fattura {invoice?.numero_fattura ?? ''} | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-6">
-  <div class="flex items-center gap-4">
+<div class="space-y-5 fade-in">
+  <div class="flex items-center gap-3">
     <button
       type="button"
-      class="p-2 rounded-2xl text-[#6B7280] hover:bg-black/5 transition-colors"
+      class="h-11 w-11 grid place-items-center rounded-2xl bg-white/80 border border-black/[0.06] hover:bg-white shrink-0"
       onclick={() => goto('/fatture')}
       aria-label="Indietro"
     >
       <ArrowLeft class="h-5 w-5" />
     </button>
-    <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">
-      Fattura {invoice?.numero_fattura ?? ''}
+    <h1 class="text-xl sm:text-3xl font-bold tracking-tight truncate">
+      {isProformaDoc ? 'Proforma' : 'Fattura'} {invoice?.numero_fattura ?? ''}
     </h1>
   </div>
+  <p class="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+    {#if isProformaDoc}
+      Proforma da inviare a cliente o agente. Non è un documento fiscale. Quando è accettata, convertila in fattura.
+    {:else}
+      Copia gestionale. FatturaPA (XML SDI) arriverà quando i dati fiscali azienda e la P.IVA cliente sono completi.
+      {#if !companyReadyForFatturaPA(company)}
+        <a class="underline font-medium" href="/impostazioni/azienda">Completa i dati aziendali</a>.
+      {/if}
+      Segnare pagata matura la provvigione (piramide inclusa nella % dell’agente padre).
+    {/if}
+  </p>
+  {#if payNotice}
+    <p class="text-xs text-rose-800 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">{payNotice}</p>
+  {/if}
 
   {#if loading}
-    <Card>
-      <div class="py-16 text-center">
-        <p class="text-sm text-[#6B7280]">Caricamento...</p>
-      </div>
-    </Card>
+    <Spinner />
   {:else if !invoice}
     <Card>
       <div class="py-16 text-center">
@@ -186,7 +283,7 @@
       </div>
     </Card>
   {:else}
-    <div class="grid gap-6 lg:grid-cols-3">
+    <div class="grid gap-5 lg:grid-cols-3">
       <!-- Dati fattura -->
       <Card className="lg:col-span-2 {isScaduta ? 'ring-2 ring-rose-200' : ''}">
         <div class="flex flex-wrap items-center gap-2 mb-4">
@@ -197,6 +294,11 @@
           >
             {isScaduta ? 'Scaduta' : STATO_LABELS[invoice.stato as InvoiceStato]}
           </span>
+          {#if invoice.tipo}
+            <span class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium bg-[#FFF3CD] text-[#1A1A1A]">
+              {TIPO_LABELS[invoice.tipo]}
+            </span>
+          {/if}
           {#if invoice.stato === 'pagata' && invoice.data_pagamento}
             <span class="text-sm text-[#6B7280]">
               Pagata il {formatDate(invoice.data_pagamento)}
@@ -244,9 +346,20 @@
             onclick={downloadPdf}
           >
             <FileDown class="h-4 w-4" />
-            Scarica PDF
+            Scarica {isProformaDoc ? 'proforma' : 'copia gestionale'}
           </Button>
-          {#if invoice.stato === 'emessa'}
+          {#if isProformaDoc && invoice.stato !== 'convertita'}
+            <Button
+              variant="primary"
+              className="rounded-2xl w-full !bg-[#1A1A1A]"
+              disabled={converting}
+              onclick={convertiInFattura}
+            >
+              <FileText class="h-4 w-4" />
+              {converting ? 'Conversione…' : 'Converti in fattura'}
+            </Button>
+          {/if}
+          {#if !isProformaDoc && invoice.stato === 'emessa'}
             <Button
               variant="primary"
               className="rounded-2xl w-full !bg-[#1A1A1A]"
@@ -340,8 +453,11 @@
         type="date"
         bind:value={dataPagamento}
         required
-        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+        class="field w-full"
       />
+      <p class="mt-2 text-xs text-[#6B7280]">
+        Se l’ordine ha un agente, in questo momento matura la sua provvigione (imponibile × %, IVA esclusa).
+      </p>
     </div>
     <div class="flex justify-end gap-3">
       <Button type="button" variant="ghost" onclick={() => (pagamentoModalOpen = false)}>

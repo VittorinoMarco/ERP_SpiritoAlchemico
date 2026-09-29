@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { pb } from '$lib/pocketbase';
@@ -58,7 +59,7 @@
     setTimeout(() => (saved = false), 2000);
   }
 
-  function parseDetails(d: string): { status?: string; order_id?: string; error?: string; payload_summary?: object; timestamp?: string } {
+  function parseDetails(d: string): { status?: string; order_id?: string; error?: string; payload_summary?: { order_id?: string; items_count?: number; totale?: number }; timestamp?: string } {
     try {
       return JSON.parse(d || '{}');
     } catch {
@@ -92,22 +93,16 @@
   <title>E-commerce | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-6">
-  <div class="flex items-center gap-4">
-    <button
-      type="button"
-      class="inline-flex items-center gap-1 text-sm text-[#6B7280] hover:text-[#1A1A1A] transition-colors"
-      onclick={() => goto('/impostazioni')}
-    >
-      <ChevronLeft class="h-4 w-4" />
-      Impostazioni
-    </button>
-  </div>
-
-  <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight flex items-center gap-2">
-    <ShoppingCart class="h-8 w-8" />
-    Integrazione E-commerce
-  </h1>
+<div class="space-y-5 fade-in max-w-4xl">
+  <button
+    type="button"
+    class="inline-flex items-center gap-1 text-sm text-[#6B7280] hover:text-[#1A1A1A] transition-colors min-h-[44px]"
+    onclick={() => goto('/impostazioni')}
+  >
+    <ChevronLeft class="h-4 w-4" />
+    Impostazioni
+  </button>
+  <PageHeader titolo="Integrazione E-commerce" sottotitolo="Ricevi ordini da Shopify, WooCommerce o e-commerce custom." />
 
   {#if isAdmin}
     <Card>
@@ -121,24 +116,26 @@
       </p>
       <div class="space-y-4">
         <div>
-          <label class="block text-xs font-medium text-[#6B7280] mb-1">URL Webhook (endpoint ERP)</label>
+          <label for="wh-url" class="block text-xs font-medium text-[#6B7280] mb-1">URL Webhook (endpoint ERP)</label>
           <input
+            id="wh-url"
             type="url"
             bind:value={webhookUrl}
             placeholder="https://tuodominio.com/webhook/ecommerce"
-            class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+            class="field w-full"
           />
           <p class="text-xs text-[#6B7280] mt-1">
             URL da configurare nel tuo e-commerce per inviare gli ordini. Esempio Nginx: <code class="bg-black/5 px-1 rounded">location /webhook/ &#123; proxy_pass http://127.0.0.1:3001; &#125;</code>
           </p>
         </div>
         <div>
-          <label class="block text-xs font-medium text-[#6B7280] mb-1">API Key / Secret (X-Webhook-Secret)</label>
+          <label for="wh-key" class="block text-xs font-medium text-[#6B7280] mb-1">API Key / Secret (X-Webhook-Secret)</label>
           <input
+            id="wh-key"
             type="password"
             bind:value={apiKey}
             placeholder="Secret per autenticazione"
-            class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+            class="field w-full"
           />
           <p class="text-xs text-[#6B7280] mt-1">
             Deve corrispondere alla variabile <code class="bg-black/5 px-1 rounded">ECCOMMERCE_WEBHOOK_SECRET</code> sul server.

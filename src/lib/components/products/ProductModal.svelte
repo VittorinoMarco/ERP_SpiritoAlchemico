@@ -4,7 +4,9 @@
   import Input from '$lib/components/ui/Input.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import type { Product, ProductCategory } from '$lib/types/product';
+  import { CATEGORY_OPTIONS } from '$lib/types/product';
   import { pb } from '$lib/pocketbase';
+  import { logAudit } from '$lib/utils/audit';
   import { Upload, X } from 'lucide-svelte';
 
   export let open = false;
@@ -15,7 +17,7 @@
   let nome = '';
   let sku = '';
   let descrizione = '';
-  let categoria: ProductCategory = 'liquore';
+  let categoria: ProductCategory = 'amaro';
   let prezzo_listino = '';
   let prezzo_horeca = '';
   let prezzo_ecommerce = '';
@@ -32,7 +34,7 @@
     nome = product.nome ?? '';
     sku = product.sku ?? '';
     descrizione = product.descrizione ?? '';
-    categoria = (product.categoria as ProductCategory) ?? 'liquore';
+    categoria = (product.categoria as ProductCategory) ?? 'amaro';
     prezzo_listino = String(product.prezzo_listino ?? '');
     prezzo_horeca = String(product.prezzo_horeca ?? '');
     prezzo_ecommerce = String(product.prezzo_ecommerce ?? '');
@@ -46,7 +48,7 @@
     errors = {};
   } else if (open && !product) {
     nome = sku = descrizione = '';
-    categoria = 'liquore';
+    categoria = 'amaro';
     prezzo_listino = prezzo_horeca = prezzo_ecommerce = volume_ml = gradazione = '';
     attivo = true;
     imageFile = null;
@@ -96,7 +98,27 @@
 
       let saved: Product;
       if (product?.id) {
+        const prima = {
+          prezzo_listino: product.prezzo_listino,
+          prezzo_horeca: product.prezzo_horeca,
+          prezzo_ecommerce: product.prezzo_ecommerce
+        };
         saved = await pb.collection('products').update(product.id, data) as Product;
+        const dopo = {
+          prezzo_listino: data.prezzo_listino,
+          prezzo_horeca: data.prezzo_horeca,
+          prezzo_ecommerce: data.prezzo_ecommerce
+        };
+        if (JSON.stringify(prima) !== JSON.stringify(dopo)) {
+          await logAudit(pb, {
+            azione: 'prezzi_prodotto_modificati',
+            collection: 'products',
+            recordId: product.id,
+            messaggio: `Prezzi di ${nome.trim()} modificati (non altera gli ordini già registrati)`,
+            prima,
+            dopo
+          });
+        }
       } else {
         saved = await pb.collection('products').create(data) as Product;
       }
@@ -172,7 +194,7 @@
         id="descrizione"
         bind:value={descrizione}
         rows="3"
-        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#9CA3AF] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547] focus-visible:ring-offset-2 transition-all duration-200"
+        class="field w-full"
         placeholder="Descrizione del prodotto"
       ></textarea>
     </div>
@@ -183,11 +205,11 @@
         <select
           id="categoria"
           bind:value={categoria}
-          class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm text-[#1A1A1A] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547] focus-visible:ring-offset-2 transition-all duration-200"
+          class="field w-full"
         >
-          <option value="liquore">Liquore</option>
-          <option value="amaro">Amaro</option>
-          <option value="gin">Gin</option>
+          {#each CATEGORY_OPTIONS as opt}
+            <option value={opt.value}>{opt.label}</option>
+          {/each}
         </select>
       </div>
       <div class="flex items-end gap-4">

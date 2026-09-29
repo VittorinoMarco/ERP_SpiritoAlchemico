@@ -1,4 +1,7 @@
 <script lang="ts">
+  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
+  import { ymdLocal } from '$lib/utils/format';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { ClientResponseError } from 'pocketbase';
@@ -124,7 +127,7 @@
 
   function tasksOnDay(day: number): AdminTask[] {
     const d = new Date(calYear, calMonth, day);
-    const iso = d.toISOString().slice(0, 10);
+    const iso = ymdLocal(d);
     return filtered.filter((t) => t.scadenza?.slice(0, 10) === iso);
   }
 
@@ -182,66 +185,34 @@
   <title>Task | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-4 max-w-[1600px] mx-auto pb-20">
-  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-    <div>
-      <h1 class="text-2xl font-bold text-[#1A1A1A] tracking-tight">Task</h1>
-      <p class="text-sm text-[#6B7280]">Gestione compiti (solo amministratori)</p>
+<div class="space-y-5 fade-in">
+  <PageHeader titolo="Task" sottotitolo="Gestione compiti (solo amministratori)">
+    <div class="inline-flex rounded-2xl bg-white/80 border border-black/[0.06] p-1" role="tablist" aria-label="Vista">
+      {#each [
+        { id: 'board', label: 'Board', icon: LayoutGrid },
+        { id: 'list', label: 'Lista', icon: List },
+        { id: 'timeline', label: 'Timeline', icon: GanttChart },
+        { id: 'calendar', label: 'Calendario', icon: CalendarDays }
+      ] as v}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === v.id}
+          aria-label={v.label}
+          class="h-10 px-3 rounded-xl text-sm font-medium inline-flex items-center gap-1.5 transition-colors {view === v.id
+            ? 'bg-[#1A1A1A] text-white'
+            : 'text-[#6B7280] hover:text-[#1A1A1A]'}"
+          onclick={() => (view = v.id as typeof view)}
+        >
+          <svelte:component this={v.icon} class="h-4 w-4" /><span class="hidden sm:inline">{v.label}</span>
+        </button>
+      {/each}
     </div>
-    <div class="flex flex-wrap items-center gap-2">
-      <div class="flex rounded-2xl border border-black/10 p-0.5 bg-white/80">
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-medium transition-colors"
-          class:bg-[#1A1A1A]={view === 'board'}
-          class:text-white={view === 'board'}
-          class:text-[#6B7280]={view !== 'board'}
-          onclick={() => (view = 'board')}
-          title="Board"
-        >
-          <LayoutGrid class="h-4 w-4 inline sm:mr-1" /><span class="hidden sm:inline">Board</span>
-        </button>
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-medium transition-colors"
-          class:bg-[#1A1A1A]={view === 'list'}
-          class:text-white={view === 'list'}
-          class:text-[#6B7280]={view !== 'list'}
-          onclick={() => (view = 'list')}
-        >
-          <List class="h-4 w-4 inline sm:mr-1" /><span class="hidden sm:inline">Lista</span>
-        </button>
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-medium transition-colors"
-          class:bg-[#1A1A1A]={view === 'timeline'}
-          class:text-white={view === 'timeline'}
-          class:text-[#6B7280]={view !== 'timeline'}
-          onclick={() => (view = 'timeline')}
-        >
-          <GanttChart class="h-4 w-4 inline sm:mr-1" /><span class="hidden sm:inline">Timeline</span>
-        </button>
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-medium transition-colors"
-          class:bg-[#1A1A1A]={view === 'calendar'}
-          class:text-white={view === 'calendar'}
-          class:text-[#6B7280]={view !== 'calendar'}
-          onclick={() => (view = 'calendar')}
-        >
-          <CalendarDays class="h-4 w-4 inline sm:mr-1" /><span class="hidden sm:inline">Calendario</span>
-        </button>
-      </div>
-      <Button variant="primary" size="sm" onclick={createTask} disabled={creating || collectionMissing}>
-        {#if creating}
-          <Loader2 class="h-4 w-4 animate-spin" />
-        {:else}
-          <Plus class="h-4 w-4" />
-        {/if}
-        Nuova task
-      </Button>
-    </div>
-  </div>
+    <Button size="sm" onclick={createTask} disabled={creating || collectionMissing}>
+      {#if creating}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Plus class="h-4 w-4" />{/if}
+      Nuova task
+    </Button>
+  </PageHeader>
 
   {#if collectionMissing}
     <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex gap-2">
@@ -255,22 +226,20 @@
       </div>
     </div>
   {:else if loading}
-    <div class="flex justify-center py-16 text-[#6B7280]">
-      <Loader2 class="h-10 w-10 animate-spin" />
-    </div>
+    <Spinner />
   {:else}
     {#if error}
       <p class="text-sm text-rose-600">{error}</p>
     {/if}
 
     <!-- Filtri comuni -->
-    <Card className="!p-3">
-      <div class="flex flex-wrap gap-3 items-end text-sm">
+    <Card className="!p-4">
+      <div class="grid grid-cols-2 sm:flex sm:flex-wrap gap-3 items-end text-sm">
         <div>
           <label class="block text-xs text-[#6B7280] mb-1" for="fp">Priorità</label>
           <select
             id="fp"
-            class="rounded-xl border border-black/10 px-3 py-2 text-sm"
+            class="field w-full sm:w-auto"
             bind:value={filterPriorita}
           >
             <option value="tutti">Tutte</option>
@@ -284,7 +253,7 @@
           <label class="block text-xs text-[#6B7280] mb-1" for="fa">Assegnatario</label>
           <select
             id="fa"
-            class="rounded-xl border border-black/10 px-3 py-2 text-sm min-w-[140px]"
+            class="field w-full sm:w-auto sm:min-w-[140px]"
             bind:value={filterAssegnatario}
           >
             <option value="">Tutti</option>
@@ -297,7 +266,7 @@
         {#if view === 'list'}
           <div>
             <label class="block text-xs text-[#6B7280] mb-1" for="lg">Raggruppa per</label>
-            <select id="lg" class="rounded-xl border border-black/10 px-3 py-2 text-sm" bind:value={listGroup}>
+            <select id="lg" class="field w-auto" bind:value={listGroup}>
               <option value="priorita">Priorità</option>
               <option value="stato">Stato</option>
               <option value="assegnatario">Assegnatario</option>
@@ -310,18 +279,19 @@
 
     {#if view === 'board'}
       <div
-        class="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory md:grid md:grid-cols-3 lg:grid-cols-6 md:overflow-visible"
+        class="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 lg:mx-0 lg:px-0 snap-x snap-mandatory md:grid md:grid-cols-3 xl:grid-cols-5 md:overflow-visible scrollbar-hide"
       >
         {#each BOARD_STATO_ORDER.filter((s) => s !== 'annullato') as st}
-          <div class="flex-shrink-0 w-[min(100%,280px)] md:w-auto snap-start flex flex-col rounded-2xl bg-white/60 border border-black/5 min-h-[200px]">
-            <div class="px-3 py-2 border-b border-black/5 text-xs font-semibold text-[#6B7280]">
+          <div class="flex-shrink-0 w-[78%] sm:w-[280px] md:w-auto snap-start flex flex-col rounded-3xl bg-white/55 border border-white/70 min-h-[200px]">
+            <div class="px-4 py-3 flex items-center justify-between text-sm font-semibold">
               {TASK_STATO_LABELS[st]}
+              <span class="chip-count">{byStato(st).length}</span>
             </div>
             <div class="p-2 space-y-2 flex-1">
               {#each byStato(st) as t}
                 <button
                   type="button"
-                  class="w-full text-left rounded-xl bg-[#F9FAFB] hover:bg-[#FFF3CD] border border-black/5 px-3 py-2 transition-colors"
+                  class="w-full text-left rounded-2xl bg-white hover:shadow-md border border-black/[0.05] px-3.5 py-3 transition-all min-h-[44px]"
                   onclick={() => goto(`/tasks/${t.id}`)}
                 >
                   <p class="text-sm font-medium text-[#1A1A1A] line-clamp-2">{t.titolo}</p>
@@ -338,6 +308,8 @@
                     <User class="h-3 w-3" />{userLabel(t)}
                   </p>
                 </button>
+              {:else}
+                <p class="text-xs text-[#9CA3AF] text-center py-6">Nessuna task</p>
               {/each}
             </div>
           </div>
@@ -356,7 +328,7 @@
                 {#each grp.items as t}
                   <button
                     type="button"
-                    class="w-full flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-black/5 bg-white/80 px-4 py-3 text-left hover:bg-[#FFFBF0] transition-colors"
+                    class="w-full flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-2xl border border-black/[0.05] bg-white px-4 py-3 text-left hover:shadow-md transition-all min-h-[44px]"
                     onclick={() => goto(`/tasks/${t.id}`)}
                   >
                     <span class="font-medium text-[#1A1A1A]">{t.titolo}</span>
@@ -411,6 +383,7 @@
           <Button
             variant="ghost"
             size="sm"
+            aria-label="Mese precedente"
             onclick={() => {
               if (calMonth === 0) {
                 calMonth = 11;
@@ -426,6 +399,7 @@
           <Button
             variant="ghost"
             size="sm"
+            aria-label="Mese successivo"
             onclick={() => {
               if (calMonth === 11) {
                 calMonth = 0;

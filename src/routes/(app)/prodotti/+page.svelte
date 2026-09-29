@@ -1,4 +1,7 @@
 <script lang="ts">
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import { formatEuro } from '$lib/utils/format';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { pb } from '$lib/pocketbase';
@@ -14,13 +17,11 @@
     ImageOff
   } from 'lucide-svelte';
   import type { Product, ProductCategory } from '$lib/types/product';
-  import { CATEGORY_LABELS, CATEGORY_BADGE_COLORS } from '$lib/types/product';
+  import { CATEGORY_LABELS, CATEGORY_BADGE_COLORS, CATEGORY_OPTIONS } from '$lib/types/product';
 
   const CATEGORY_FILTERS: { value: ProductCategory | 'tutti'; label: string }[] = [
     { value: 'tutti', label: 'Tutti' },
-    { value: 'liquore', label: 'Liquore' },
-    { value: 'amaro', label: 'Amaro' },
-    { value: 'gin', label: 'Gin' }
+    ...CATEGORY_OPTIONS
   ];
 
   const ITEMS_PER_PAGE = 10;
@@ -139,20 +140,24 @@
   }
 </script>
 
-<div class="space-y-6">
-  <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-    <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">Prodotti</h1>
-  </div>
+<div class="space-y-5 fade-in">
+  <PageHeader titolo="Prodotti" sottotitolo="Catalogo, listini per canale e stato di vendita.">
+    <Button variant="ghost" size="sm" onclick={exportCsv}>
+      <Download class="h-4 w-4" />
+      <span class="hidden sm:inline">Export CSV</span>
+    </Button>
+    <Button size="sm" onclick={openNewModal}>
+      <Plus class="h-4 w-4" />
+      Nuovo prodotto
+    </Button>
+  </PageHeader>
 
   <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="chip-row">
       {#each CATEGORY_FILTERS as f}
         <button
           type="button"
-          class="rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 {f.value ===
-          categoryFilter
-            ? 'bg-[#F5D547] text-[#1A1A1A]'
-            : 'bg-[#E5E7EB] text-[#6B7280] hover:bg-[#D1D5DB]'}"
+          class="chip {f.value === categoryFilter ? 'chip-active' : ''}"
           onclick={() => {
             categoryFilter = f.value as ProductCategory | 'tutti';
             page = 1;
@@ -171,35 +176,15 @@
           type="text"
           bind:value={search}
           placeholder="Cerca per nome o SKU..."
-          class="w-full rounded-2xl border border-black/5 bg-white/80 pl-10 pr-4 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#9CA3AF] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547] focus-visible:ring-offset-2"
+          class="field w-full"
         />
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="rounded-2xl"
-        onclick={exportCsv}
-      >
-        <Download class="h-4 w-4" />
-        Export CSV
-      </Button>
-      <Button
-        variant="primary"
-        size="sm"
-        className="rounded-2xl !bg-[#1A1A1A]"
-        onclick={openNewModal}
-      >
-        <Plus class="h-4 w-4" />
-        Nuovo
-      </Button>
     </div>
   </div>
 
   <Card className="overflow-hidden p-0">
     {#if loading}
-      <div class="flex items-center justify-center py-16">
-        <p class="text-sm text-[#6B7280]">Caricamento...</p>
-      </div>
+      <Spinner />
     {:else}
       <!-- Desktop table -->
       <div class="hidden md:block overflow-x-auto">
@@ -290,13 +275,13 @@
                   </span>
                 </td>
                 <td class="px-4 py-3 text-sm text-[#1A1A1A]">
-                  € {Number(p.prezzo_listino).toFixed(2)}
+                  {formatEuro(p.prezzo_listino)}
                 </td>
                 <td class="px-4 py-3 text-sm text-[#1A1A1A]">
-                  € {Number(p.prezzo_horeca).toFixed(2)}
+                  {formatEuro(p.prezzo_horeca)}
                 </td>
                 <td class="px-4 py-3 text-sm text-[#1A1A1A]">
-                  € {Number(p.prezzo_ecommerce).toFixed(2)}
+                  {formatEuro(p.prezzo_ecommerce)}
                 </td>
                 <td class="px-4 py-3">
                   <span
@@ -359,7 +344,7 @@
                   </span>
                 </div>
                 <p class="text-sm text-[#1A1A1A] mt-1">
-                  € {Number(p.prezzo_listino).toFixed(2)} listino
+                  {formatEuro(p.prezzo_listino)} listino
                 </p>
               </div>
             </div>

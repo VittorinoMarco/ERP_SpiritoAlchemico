@@ -1,10 +1,15 @@
 <script lang="ts">
+  import Button from '$lib/components/ui/Button.svelte';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
+  import { ymdLocal } from '$lib/utils/format';
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { pb } from '$lib/pocketbase';
   import Card from '$lib/components/ui/Card.svelte';
-  import { Users, ShoppingCart, Euro, Percent, ChevronRight } from 'lucide-svelte';
+  import { Users, ShoppingCart, Euro, Percent, ChevronRight, UserPlus } from 'lucide-svelte';
   import type { AgentCommission, CommissionStato } from '$lib/types/agent';
   import { COMMISSION_STATO_LABELS, COMMISSION_STATO_BADGE } from '$lib/types/agent';
 
@@ -31,8 +36,8 @@
   let loading = true;
 
   const now = new Date();
-  const meseStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-  const meseEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+  const meseStart = ymdLocal(new Date(now.getFullYear(), now.getMonth(), 1));
+  const meseEnd = ymdLocal(new Date(now.getFullYear(), now.getMonth() + 1, 0));
 
   $: totaleMaturateGlobale = allCommissions
     .filter((c) => c.stato === 'maturata')
@@ -236,24 +241,24 @@
   <title>Agenti | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-6">
-  <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">Agenti e Provvigioni</h1>
+<div class="space-y-5 fade-in">
+  <PageHeader titolo="Agenti e Provvigioni" sottotitolo="Performance del mese, clienti assegnati e provvigioni maturate.">
+    <Button size="sm" onclick={() => goto('/register')}>
+      <UserPlus class="h-4 w-4" /> Invita agente
+    </Button>
+  </PageHeader>
 
-  <div class="flex gap-2">
+  <div class="chip-row">
     <button
       type="button"
-      class="rounded-full px-5 py-2.5 text-sm font-medium transition-all {activeTab === 'agenti'
-        ? 'bg-[#F5D547] text-[#1A1A1A]'
-        : 'bg-[#E5E7EB] text-[#6B7280] hover:bg-[#D1D5DB]'}"
+      class="chip {activeTab === 'agenti' ? 'chip-active' : ''}"
       onclick={() => (activeTab = 'agenti')}
     >
       Agenti
     </button>
     <button
       type="button"
-      class="rounded-full px-5 py-2.5 text-sm font-medium transition-all {activeTab === 'provvigioni'
-        ? 'bg-[#F5D547] text-[#1A1A1A]'
-        : 'bg-[#E5E7EB] text-[#6B7280] hover:bg-[#D1D5DB]'}"
+      class="chip {activeTab === 'provvigioni' ? 'chip-active' : ''}"
       onclick={() => (activeTab = 'provvigioni')}
     >
       Provvigioni
@@ -261,11 +266,7 @@
   </div>
 
   {#if loading}
-    <Card>
-      <div class="py-16 text-center">
-        <p class="text-sm text-[#6B7280]">Caricamento...</p>
-      </div>
-    </Card>
+    <Spinner />
   {:else if activeTab === 'agenti'}
     <section class="page-grid">
       {#each agents as agent (agent.id)}
@@ -329,9 +330,9 @@
 
     {#if agents.length === 0}
       <Card>
-        <div class="py-16 text-center">
-          <p class="text-sm text-[#6B7280]">Nessun agente trovato</p>
-        </div>
+        <EmptyState icon={Users} titolo="Nessun agente" testo="Invita il primo agente: potrà creare ordini e vedere solo i propri clienti.">
+          <Button onclick={() => goto('/register')}><UserPlus class="h-4 w-4" /> Invita agente</Button>
+        </EmptyState>
       </Card>
     {/if}
   {:else}

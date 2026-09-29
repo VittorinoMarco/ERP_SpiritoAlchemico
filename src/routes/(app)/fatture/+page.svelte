@@ -1,4 +1,7 @@
 <script lang="ts">
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import { ymdLocal } from '$lib/utils/format';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { pb } from '$lib/pocketbase';
@@ -37,10 +40,13 @@
   let dateTo = '';
   let page = 1;
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = ymdLocal(new Date());
 
   $: isScaduta = (inv: Invoice) =>
-    inv.data_scadenza < today && inv.stato !== 'pagata';
+    inv.stato !== 'pagata' &&
+    inv.stato !== 'convertita' &&
+    inv.tipo !== 'proforma' &&
+    inv.data_scadenza < today;
 
   $: filteredInvoices = invoices.filter((inv) => {
     const scaduta = isScaduta(inv);
@@ -120,8 +126,8 @@
         }),
         pb.collection('clients').getFullList({ fields: 'id,ragione_sociale' })
       ]);
-      invoices = invList;
-      clients = clientList;
+      invoices = invList as any;
+      clients = clientList as any;
     } catch {
       invoices = [];
       clients = [];
@@ -164,15 +170,14 @@
   <title>Fatture | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-6">
-  <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">Fatture</h1>
+<div class="space-y-5 fade-in">
+  <PageHeader
+    titolo="Fatture"
+    sottotitolo="Proforma da inviare, poi fattura gestionale. FatturaPA (SDI) quando i dati fiscali sono completi. Il PDF attuale non è un XML fiscale."
+  />
 
   {#if loading}
-    <Card>
-      <div class="py-16 text-center">
-        <p class="text-sm text-[#6B7280]">Caricamento...</p>
-      </div>
-    </Card>
+    <Spinner />
   {:else}
     <!-- Dashboard KPI -->
     <section class="page-grid">
@@ -204,13 +209,11 @@
     </Card>
 
     <!-- Filtri -->
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="chip-row">
       {#each STATO_FILTERS as f}
         <button
           type="button"
-          class="rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 {statoFilter === f.value
-            ? 'bg-[#F5D547] text-[#1A1A1A]'
-            : 'bg-[#E5E7EB] text-[#6B7280] hover:bg-[#D1D5DB]'}"
+          class="chip {statoFilter === f.value ? 'chip-active' : ''}"
           onclick={() => {
             statoFilter = f.value;
             page = 1;
@@ -221,7 +224,7 @@
       {/each}
       <select
         bind:value={clienteFilter}
-        class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm"
+        class="field w-auto"
       >
         <option value="">Tutti i clienti</option>
         {#each clients as c}
@@ -243,7 +246,7 @@
           <thead>
             <tr class="border-b border-black/5">
               <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">N. Fattura</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Data</th>
+              <th class="hidden sm:table-cell px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Data</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Cliente</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Stato</th>
               <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280] uppercase">Totale</th>
@@ -262,8 +265,8 @@
                 <td class="px-4 py-3 text-sm font-bold text-[#1A1A1A]">
                   {inv.numero_fattura ?? '—'}
                 </td>
-                <td class="px-4 py-3 text-sm text-[#6B7280]">{formatDate(inv.data_emissione)}</td>
-                <td class="px-4 py-3 text-sm text-[#1A1A1A]">
+                <td class="hidden sm:table-cell px-4 py-3 text-sm text-[#6B7280]">{formatDate(inv.data_emissione)}</td>
+                <td class="px-4 py-3 text-sm text-[#1A1A1A] max-w-[9rem] sm:max-w-none truncate">
                   {inv.expand?.cliente?.ragione_sociale ?? '—'}
                 </td>
                 <td class="px-4 py-3">

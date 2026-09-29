@@ -230,7 +230,7 @@
 </svelte:head>
 
 <div
-  class="flex flex-col lg:flex-row gap-0 min-h-[calc(100vh-6rem)] lg:min-h-[calc(100vh-7rem)] rounded-3xl overflow-hidden border border-black/5 bg-gradient-to-br from-white to-[#FAFAF9] shadow-sm"
+  class="flex flex-col lg:flex-row gap-0 min-h-[70dvh] lg:h-[calc(100dvh-var(--chrome-y))] rounded-3xl overflow-hidden border border-white bg-white/80 shadow-[0_12px_32px_-16px_rgba(16,16,16,0.15)]"
 >
   <!-- Mobile top bar -->
   <div
@@ -257,7 +257,7 @@
   {#if mobileDrawerOpen}
     <button
       type="button"
-      class="lg:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]"
+      class="lg:hidden fixed inset-0 z-[55] bg-black/40 backdrop-blur-[2px]"
       aria-label="Chiudi menu"
       onclick={() => (mobileDrawerOpen = false)}
     ></button>
@@ -265,11 +265,10 @@
 
   <!-- Sidebar -->
   <aside
-    class="flex flex-col bg-[#F4F3F0] border-black/5 z-50 lg:z-0
-      fixed lg:relative inset-x-0 bottom-0 lg:bottom-auto
-      top-[52px] lg:top-auto
-      max-h-[min(78vh,calc(100vh-8rem))] lg:max-h-[calc(100vh-8rem)] w-full lg:w-[min(100%,22rem)] xl:w-96 flex-shrink-0
-      lg:border-r border-t lg:border-t-0 rounded-t-3xl lg:rounded-none shadow-xl lg:shadow-none
+    class="flex flex-col bg-[#F4F3F0] border-black/5 z-[60] lg:z-0
+      fixed lg:relative left-3 lg:left-auto bottom-[calc(var(--bottomnav-h)+var(--safe-bottom)+0.75rem)] lg:bottom-auto
+      max-h-[min(72dvh,32rem)] lg:max-h-none w-[calc(100%-1.5rem)] lg:w-[min(100%,22rem)] xl:w-96 flex-shrink-0
+      lg:border-r rounded-3xl lg:rounded-none shadow-2xl lg:shadow-none overflow-hidden
       {mobileDrawerOpen ? 'flex' : 'hidden'} lg:flex"
   >
     <div class="p-3 border-b border-black/5 flex gap-2 flex-shrink-0 bg-white/50">
@@ -391,7 +390,7 @@
   </aside>
 
   <!-- Editor -->
-  <main class="flex-1 flex flex-col min-w-0 min-h-[50vh] lg:min-h-[calc(100vh-8rem)] bg-white/70">
+  <div class="flex-1 flex flex-col min-w-0 min-h-[50dvh] lg:min-h-0 bg-white/70">
     {#if collectionMissing}
       <div class="p-6 text-sm text-amber-800">
         Crea le collection <code class="bg-black/5 px-1 rounded">note_folders</code> e
@@ -421,7 +420,7 @@
             <label class="block text-xs font-medium text-[#6B7280] mb-1" for="note-cartella">Cartella</label>
             <select
               id="note-cartella"
-              class="w-full rounded-2xl border border-black/10 px-4 py-2.5 text-sm bg-white min-h-[44px]"
+              class="field w-full"
               bind:value={editCartella}
             >
               <option value="">Nessuna (root)</option>
@@ -460,7 +459,7 @@
           </div>
         {:else}
           <textarea
-            class="flex-1 w-full min-h-[min(50vh,420px)] lg:min-h-[320px] resize-y rounded-2xl border border-black/10 px-4 py-3 text-base sm:text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#F5D547]"
+            class="field flex-1 w-full lg:min-h-[320px] sm:text-sm"
             placeholder="Scrivi in Markdown…"
             bind:value={editCorpo}
           ></textarea>
@@ -485,7 +484,7 @@
         </p>
       </div>
     {/if}
-  </main>
+  </div>
 </div>
 
 <Modal open={folderModalOpen} title="Nuova cartella" size="sm" on:close={() => (folderModalOpen = false)}>
@@ -495,7 +494,7 @@
       <label class="block text-sm font-medium text-[#1A1A1A] mb-1" for="folder-parent">Cartella padre (opzionale)</label>
       <select
         id="folder-parent"
-        class="w-full rounded-2xl border border-black/10 px-4 py-2.5 text-sm min-h-[44px]"
+        class="field w-full"
         bind:value={newFolderParent}
       >
         <option value="">— Nessuna (livello principale) —</option>

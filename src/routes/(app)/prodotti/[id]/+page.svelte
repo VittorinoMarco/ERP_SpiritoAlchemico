@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import { formatEuro } from '$lib/utils/format';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
@@ -78,9 +80,10 @@
         filter: `prodotto = "${productId}"`,
         expand: 'ordine'
       });
+      // Bozze e annullati non contano come venduto
       for (const item of orderItems) {
-        const ordine = item.expand?.ordine as { data_ordine?: string } | undefined;
-        if (ordine?.data_ordine) {
+        const ordine = item.expand?.ordine as { data_ordine?: string; stato?: string } | undefined;
+        if (ordine?.data_ordine && ordine.stato !== 'annullato' && ordine.stato !== 'bozza') {
           const d = new Date(ordine.data_ordine);
           const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
           if (key in byMonth) {
@@ -132,27 +135,24 @@
   <title>{product?.nome ?? 'Prodotto'} | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-6">
-  <div class="flex items-center gap-4">
+<div class="space-y-5 fade-in">
+  <div class="flex items-center gap-3">
     <button
       type="button"
-      class="p-2 rounded-2xl text-[#6B7280] hover:bg-black/5 transition-colors"
+      class="h-11 w-11 grid place-items-center rounded-2xl bg-white/80 border border-black/[0.06] hover:bg-white shrink-0"
       onclick={() => goto('/prodotti')}
-      aria-label="Indietro"
+      aria-label="Torna ai prodotti"
     >
       <ArrowLeft class="h-5 w-5" />
     </button>
-    <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">
-      {product?.nome ?? 'Prodotto'}
-    </h1>
+    <div class="min-w-0">
+      <p class="text-xs text-[#6B7280]">Prodotto</p>
+      <h1 class="text-xl sm:text-3xl font-bold tracking-tight truncate">{product?.nome ?? '…'}</h1>
+    </div>
   </div>
 
   {#if loading}
-    <Card>
-      <div class="py-16 text-center">
-        <p class="text-sm text-[#6B7280]">Caricamento...</p>
-      </div>
-    </Card>
+    <Spinner />
   {:else if !product}
     <Card>
       <div class="py-16 text-center">
@@ -163,19 +163,19 @@
       </div>
     </Card>
   {:else}
-    <div class="grid gap-6 lg:grid-cols-3">
-      <Card className="lg:col-span-2">
+    <div class="grid gap-5 lg:grid-cols-[1fr_280px] items-start">
+      <Card>
         <div class="flex flex-col sm:flex-row gap-6">
           <div class="flex-shrink-0">
             {#if getImageUrl(product)}
               <img
                 src={getImageUrl(product)}
                 alt={product.nome}
-                class="h-48 w-48 rounded-2xl object-cover"
+                class="h-56 w-full sm:h-48 sm:w-48 rounded-2xl object-cover"
               />
             {:else}
               <div
-                class="h-48 w-48 rounded-2xl bg-[#E5E7EB] flex items-center justify-center"
+                class="h-40 w-full sm:h-48 sm:w-48 rounded-2xl bg-[#F3F4F6] flex items-center justify-center"
               >
                 <ImageOff class="h-12 w-12 text-[#9CA3AF]" />
               </div>
@@ -204,15 +204,15 @@
               <dd class="text-sm font-medium text-[#1A1A1A]">{product.sku}</dd>
               <dt class="text-sm text-[#6B7280]">Prezzo listino</dt>
               <dd class="text-sm font-medium text-[#1A1A1A]">
-                € {Number(product.prezzo_listino).toFixed(2)}
+                {formatEuro(product.prezzo_listino)}
               </dd>
               <dt class="text-sm text-[#6B7280]">Prezzo HORECA</dt>
               <dd class="text-sm font-medium text-[#1A1A1A]">
-                € {Number(product.prezzo_horeca).toFixed(2)}
+                {formatEuro(product.prezzo_horeca)}
               </dd>
               <dt class="text-sm text-[#6B7280]">Prezzo E-commerce</dt>
               <dd class="text-sm font-medium text-[#1A1A1A]">
-                € {Number(product.prezzo_ecommerce).toFixed(2)}
+                {formatEuro(product.prezzo_ecommerce)}
               </dd>
               {#if product.volume_ml}
                 <dt class="text-sm text-[#6B7280]">Volume</dt>
@@ -230,8 +230,8 @@
             {#if product.descrizione}
               <div>
                 <p class="text-sm text-[#6B7280] mb-1">Descrizione</p>
-                <div class="text-sm text-[#1A1A1A] prose prose-sm max-w-none">
-                  {@html product.descrizione}
+                <div class="text-sm text-[#1A1A1A] whitespace-pre-line break-words">
+                  {product.descrizione}
                 </div>
               </div>
             {/if}
@@ -243,7 +243,7 @@
         <div class="flex flex-col gap-3">
           <Button
             variant="primary"
-            className="rounded-2xl !bg-[#1A1A1A] w-full justify-center"
+            className="w-full"
             onclick={() => (modalOpen = true)}
           >
             <Edit class="h-4 w-4" />
@@ -251,7 +251,7 @@
           </Button>
           <Button
             variant={product.attivo ? 'ghost' : 'secondary'}
-            className="rounded-2xl w-full justify-center"
+            className="w-full"
             onclick={toggleAttivo}
           >
             {#if product.attivo}

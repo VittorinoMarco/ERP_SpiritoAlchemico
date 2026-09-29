@@ -20,7 +20,12 @@ const pb = new PocketBase(PB_URL);
 
 async function ensureAdminAuth() {
   if (PB_ADMIN_EMAIL && PB_ADMIN_PASSWORD && !pb.authStore.isValid) {
-    await pb.admins.authWithPassword(PB_ADMIN_EMAIL, PB_ADMIN_PASSWORD);
+    try {
+      await pb.collection('_superusers').authWithPassword(PB_ADMIN_EMAIL, PB_ADMIN_PASSWORD);
+    } catch {
+      // PocketBase < 0.23 (l'endpoint /api/admins esiste solo lì)
+      await pb.admins.authWithPassword(PB_ADMIN_EMAIL, PB_ADMIN_PASSWORD);
+    }
   }
 }
 

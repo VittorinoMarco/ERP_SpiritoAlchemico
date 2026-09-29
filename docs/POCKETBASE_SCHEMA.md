@@ -1,5 +1,24 @@
 # PocketBase Schema
 
+## Sync automatico (consigliato)
+
+Invece di creare collection/campi a mano dall’Admin UI, usa lo script (richiede superuser in `.env.local`):
+
+```bash
+# anteprima
+npm run pb:sync:dry
+
+# applica (idempotente: aggiunge solo ciò che manca)
+npm run pb:sync
+```
+
+Variabili: `POCKETBASE_URL`, `POCKETBASE_ADMIN_EMAIL`, `POCKETBASE_ADMIN_PASSWORD`  
+Script: `scripts/sync-pocketbase-schema.mjs`
+
+Quando serve un nuovo campo/collection per l’ERP, si aggiunge la definizione nello script e si rilancia `pb:sync`.
+
+---
+
 ## Collection `inventory` — soglia “sotto scorta”
 
 L’app (notifiche, badge magazzino, filtri) considera **sotto scorta** quando **`giacenza ≤ 6`** (soglia fissa nel codice, `SOGLIA_SOTTO_SCORTA`). Il campo **`giacenza_minima`** resta in anagrafica per riferimento / report ma **non** determina più l’alert globale.
@@ -318,3 +337,27 @@ Per mostrare nomi di assegnatario / autore, le **View** sulla collection `users`
 - **`note_folders`**: l’app legge il padre come **`genitore`** o **`parent`**. Per le note, **`cartella`** o **`folder`** verso `note_folders`.
 - **`admin_tasks`**: la relation self per i sotto-task è attesa come **`parent`**; in alternativa l’app accetta anche **`genitore`** in lettura filtri.
 - **Assegnatario**: in salvataggio viene inviato `null` per svuotare la relation; l’elenco utenti usa `sort` su **`email`** e i campi **`nome`**, **`cognome`**, **`email`** (come nel resto dell’ERP).
+
+---
+
+## API Rules (hardening) — `npm run pb:rules`
+
+Le regole sono applicate dallo script `scripts/apply-pocketbase-rules.mjs` (`npm run pb:rules:dry` mostra le differenze, `npm run pb:rules` le applica e salva un backup in `scripts/.rules-backup-*.json`).
+
+| Collection | Regola |
+|---|---|
+| `users` | view: solo se stessi o admin. update: admin, oppure se stessi **senza** poter cambiare `ruolo`, `provvigione_percentuale`, `verified` (prima chiunque poteva modificare qualunque utente). |
+| `orders` | create: admin, oppure agente su ordini propri **in stato `bozza`**. update: admin, oppure agente sulle proprie bozze (solo restando bozza o annullando). |
+| `order_items` | list/view: admin, magazziniere, agente solo per i propri ordini. create/update: admin, oppure agente su propria bozza. |
+| `invoices` | list/view: admin, agente solo per i propri ordini. |
+| `clients` | create: admin, oppure agente solo se assegna il cliente a sé. |
+| `activity_log` | list/view: admin o proprio log. create: solo con `utente` = utente loggato. |
+| `ai_chat_sessions` | ogni utente accede solo alle proprie sessioni. |
+
+### Flusso ordini (implementato nell'app)
+
+1. **Agente** crea l'ordine → sempre `bozza` ("Invia ordine"). Non tocca il magazzino.
+2. **Admin** conferma → controllo giacenza, scarico magazzino (con rollback se fallisce), stato `confermato`.
+3. **Admin** segna `spedito` → `consegnato` → genera fattura interna (una sola per ordine, numerazione `FAT-AAAA-NNNN`). Il PDF è una copia gestionale, non FatturaPA.
+4. **Admin** segna la fattura `pagata` → matura la provvigione: `importo = round2(imponibile × users.provvigione_percentuale / 100)`, congelata sulla riga. Senza agente sull'ordine non si crea nulla.
+5. Annullamento/eliminazione di un ordine già confermato **ripristina la giacenza** (in modo idempotente: netto scarichi − carichi con lo stesso `ordine_rif`). Se esiste già una fattura, l'ordine non si annulla dal gestionale.

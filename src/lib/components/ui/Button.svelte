@@ -1,5 +1,5 @@
 <script lang="ts">
-  type Variant = 'primary' | 'secondary' | 'ghost';
+  type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
   type Size = 'sm' | 'md';
 
   export let variant: Variant = 'primary';
@@ -7,31 +7,33 @@
   export let type: 'button' | 'submit' | 'reset' = 'button';
   export let disabled = false;
   export let className = '';
+  /** Alias di className (molte pagine usano `class=`). */
+  let klass = '';
+  export { klass as class };
   /** @type {((e: MouseEvent) => void) | undefined} */
-  export let onclick = undefined;
+  export let onclick: ((e: MouseEvent) => void) | undefined = undefined;
 
   const sizeClasses: Record<Size, string> = {
-    sm: 'px-4 py-2 text-sm',
-    md: 'px-6 py-3 text-sm'
+    sm: 'min-h-[40px] px-4 py-2 text-sm',
+    md: 'min-h-[44px] px-5 py-2.5 text-sm'
   };
 
   const variantClasses: Record<Variant, string> = {
-    primary: 'bg-[#1A1A1A] text-white',
-    secondary: 'bg-[#F5D547] text-[#1A1A1A]',
-    ghost: 'bg-transparent text-[#1A1A1A] border border-black/5'
+    primary: 'bg-[#1A1A1A] text-white hover:bg-black shadow-sm',
+    secondary: 'bg-[#F5D547] text-[#1A1A1A] hover:bg-[#EFCB31] shadow-sm',
+    ghost: 'bg-white/80 text-[#1A1A1A] border border-black/[0.07] hover:bg-white',
+    danger: 'bg-rose-600 text-white hover:bg-rose-700 shadow-sm'
   };
 </script>
 
 <button
+  {...$$restProps}
   {type}
   {onclick}
-  class={`inline-flex items-center justify-center gap-2 rounded-2xl font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#F5D547] ${sizeClasses[size]} ${
-    disabled ? 'opacity-60 pointer-events-none' : variantClasses[variant]
-  } ${className}`}
-  class:opacity-60={disabled}
-  class:pointer-events-none={disabled}
-  disabled={disabled}
+  {disabled}
+  class={`inline-flex items-center justify-center gap-2 rounded-2xl font-medium whitespace-nowrap select-none transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#F5D547] ${sizeClasses[size]} ${variantClasses[variant]} ${
+    disabled ? 'opacity-50 pointer-events-none' : ''
+  } ${className} ${klass}`}
 >
   <slot />
 </button>
-

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ymdLocal } from '$lib/utils/format';
   import { pb } from '$lib/pocketbase';
   import Button from '$lib/components/ui/Button.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
@@ -45,7 +46,7 @@
   /** Fallback se il parent non ha ancora `products` (es. fallimento parziale loadData prima del fix). */
   let productsFallback: Product[] = [];
 
-  const today = () => new Date().toISOString().split('T')[0];
+  const today = () => ymdLocal(new Date());
 
   /** Catalogo effettivo per match e select (prop o fetch locale). */
   $: catalogProducts = products.length > 0 ? products : productsFallback;
@@ -290,7 +291,7 @@
         id="acq-data"
         type="date"
         bind:value={acquistoData}
-        class="w-full rounded-2xl border border-black/10 px-3 py-2 text-sm"
+        class="field w-full"
       />
     </div>
     <div>
@@ -300,7 +301,7 @@
         type="text"
         bind:value={acquistoNumero}
         placeholder="es. OC-2026-01"
-        class="w-full rounded-2xl border border-black/10 px-3 py-2 text-sm"
+        class="field w-full"
       />
     </div>
     <div>
@@ -310,7 +311,7 @@
         type="text"
         bind:value={acquistoImponibile}
         placeholder="es. 927,63"
-        class="w-full rounded-2xl border border-black/10 px-3 py-2 text-sm"
+        class="field w-full"
       />
     </div>
     <div>
@@ -320,7 +321,7 @@
         type="text"
         bind:value={acquistoIva}
         placeholder="vuoto = 22% su imponibile"
-        class="w-full rounded-2xl border border-black/10 px-3 py-2 text-sm"
+        class="field w-full"
       />
     </div>
   </div>
@@ -329,7 +330,7 @@
     {#each acquistoLines as line, i}
       <div class="flex flex-wrap gap-2 items-center">
         <select
-          class="flex-1 min-w-[160px] rounded-2xl border border-black/10 px-3 py-2 text-sm"
+          class="field flex-1 min-w-[160px]"
           bind:value={line.prodottoId}
         >
           <option value="">Prodotto…</option>
@@ -342,7 +343,7 @@
           min="1"
           bind:value={line.qty}
           placeholder="Qtà"
-          class="w-24 rounded-2xl border border-black/10 px-3 py-2 text-sm"
+          class="field w-24"
         />
         <button type="button" class="text-xs text-rose-600 px-2" onclick={() => removeAcquistoLine(i)}>Rimuovi</button>
       </div>
@@ -355,7 +356,7 @@
       id="acq-note"
       bind:value={acquistoNote}
       rows="2"
-      class="w-full rounded-2xl border border-black/10 px-3 py-2 text-sm"
+      class="field w-full"
     ></textarea>
   </div>
   <div class="flex justify-end gap-2">
@@ -405,7 +406,7 @@
           id="fattura-paste"
           bind:value={fatturaPaste}
           rows="8"
-          class="w-full rounded-2xl border border-black/10 px-3 py-2 text-sm font-mono text-xs"
+          class="field w-full font-mono"
           placeholder="Testo grezzo dalla fattura…"
         ></textarea>
       </div>
@@ -437,11 +438,11 @@
     <div class="grid sm:grid-cols-2 gap-3 mb-4">
       <div>
         <label class="block text-xs font-medium text-[#6B7280] mb-1" for="fattura-imp">Imponibile totale (€)</label>
-        <input id="fattura-imp" type="text" bind:value={fatturaImponibile} class="w-full rounded-2xl border border-black/10 px-3 py-2 text-sm" />
+        <input id="fattura-imp" type="text" bind:value={fatturaImponibile} class="field w-full" />
       </div>
       <div>
         <label class="block text-xs font-medium text-[#6B7280] mb-1" for="fattura-iva">IVA (€)</label>
-        <input id="fattura-iva" type="text" bind:value={fatturaIva} class="w-full rounded-2xl border border-black/10 px-3 py-2 text-sm" />
+        <input id="fattura-iva" type="text" bind:value={fatturaIva} class="field w-full" />
       </div>
     </div>
     <div class="overflow-x-auto max-h-72 overflow-y-auto border border-black/5 rounded-2xl mb-4">
@@ -475,7 +476,7 @@
                   type="number"
                   min="1"
                   step="1"
-                  class="w-20 rounded-lg border border-black/10 px-1.5 py-1 text-xs font-medium"
+                  class="field w-20"
                   value={row.quantita}
                   title="Correggi la Qtà se l’AI ha confuso con l’IVA"
                   oninput={(e) => {
@@ -512,7 +513,7 @@
               </td>
               <td class="px-2 py-2">
                 <select
-                  class="w-full min-w-[140px] rounded-xl border border-black/10 px-2 py-1 text-xs"
+                  class="field w-full min-w-[140px]"
                   bind:value={row.prodottoId}
                 >
                   <option value="">— Scegli —</option>

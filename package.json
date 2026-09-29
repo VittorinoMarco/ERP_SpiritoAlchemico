@@ -10,7 +10,15 @@
     "lint": "svelte-check --tsconfig ./tsconfig.json",
     "test": "echo \"No tests configured\"",
     "webhook": "node server/webhook.js",
-    "backup": "node server/backup.js"
+    "backup": "node server/backup.js",
+    "pb:sync": "node scripts/sync-pocketbase-schema.mjs",
+    "pb:sync:dry": "node scripts/sync-pocketbase-schema.mjs --dry-run",
+    "pb:rules": "node scripts/apply-pocketbase-rules.mjs",
+    "pb:rules:dry": "node scripts/apply-pocketbase-rules.mjs --dry-run",
+    "pb:rules:strict": "node scripts/apply-pocketbase-rules.mjs --strict",
+    "pb:audit-schema": "node scripts/apply-audit-schema.mjs",
+    "pb:audit-schema:dry": "node scripts/apply-audit-schema.mjs --dry-run",
+    "pb:test-permissions": "node scripts/test-pocketbase-permissions.mjs"
   },
   "type": "module",
   "devDependencies": {

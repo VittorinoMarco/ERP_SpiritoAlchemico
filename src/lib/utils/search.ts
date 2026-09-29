@@ -21,7 +21,7 @@ export interface AIFilterResponse {
 
 function buildTextFilter(term: string, fields: string[]): string {
   if (!term?.trim()) return '';
-  const t = term.trim().replace(/"/g, '\\"');
+  const t = term.trim().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   return fields.map((f) => `${f} ~ "${t}"`).join(' || ');
 }
 
@@ -78,7 +78,9 @@ Se non applicabile, usa stringa vuota "".`
 export async function searchPocketBase(
   query: string,
   aiFilters?: AIFilterResponse,
-  aiUsed?: boolean
+  aiUsed?: boolean,
+  /** Tipi consentiti al ruolo corrente (default: tutti) */
+  allowed: SearchResultType[] = ['products', 'clients', 'orders', 'invoices', 'inventory']
 ): Promise<SearchResult[]> {
   const q = query.trim();
   const results: SearchResult[] = [];
@@ -86,11 +88,25 @@ export async function searchPocketBase(
 
   if (!q && !aiFilters) return results;
 
-  const productFilter = aiFilters?.products || (q ? buildTextFilter(q, ['nome', 'sku', 'descrizione']) : '');
-  const clientFilter = aiFilters?.clients || (q ? buildTextFilter(q, ['ragione_sociale', 'email', 'citta']) : '');
-  const orderFilter = aiFilters?.orders || (q ? buildTextFilter(q, ['numero_ordine', 'note']) : '');
-  const invoiceFilter =
-    aiFilters?.invoices || (q ? buildTextFilter(q, ['numero_fattura']) : '');
+  const productFilter = !allowed.includes('products')
+    ? ''
+    : aiFilters?.products || (q ? buildTextFilter(q, ['nome', 'sku', 'descrizione']) : '');
+  const clientFilter = !allowed.includes('clients')
+    ? ''
+    : aiFilters?.clients || (q ? buildTextFilter(q, ['ragione_sociale', 'email', 'citta']) : '');
+  const orderFilter = !allowed.includes('orders')
+    ? ''
+    : aiFilters?.orders ||
+      (q ? buildTextFilter(q, ['numero_ordine', 'note', 'cliente.ragione_sociale']) : '');
+  const invoiceFilter = !allowed.includes('invoices')
+    ? ''
+    : aiFilters?.invoices ||
+      (q ? buildTextFilter(q, ['numero_fattura', 'cliente.ragione_sociale']) : '');
+
+  const inventoryFilter = !allowed.includes('inventory')
+    ? ''
+    : aiFilters?.inventory ||
+      (q ? buildTextFilter(q, ['prodotto.nome', 'prodotto.sku']) : '');
 
   const promises: Promise<void>[] = [];
 
@@ -180,11 +196,11 @@ export async function searchPocketBase(
     );
   }
 
-  if (aiFilters?.inventory) {
+  if (inventoryFilter) {
     promises.push(
       pb
         .collection('inventory')
-        .getList(1, 5, { filter: aiFilters.inventory, expand: 'prodotto' })
+        .getList(1, 5, { filter: inventoryFilter, expand: 'prodotto' })
         .then((r) => {
           for (const item of r.items as any[]) {
             const p = (item as any).expand?.prodotto;
@@ -194,7 +210,7 @@ export async function searchPocketBase(
               title: p?.nome ?? '—',
               subtitle: `Giacenza: ${item.giacenza ?? 0} (min: ${item.giacenza_minima ?? 0})`,
               url: '/magazzino',
-              aiInterpreted: true
+              aiInterpreted: ai
             });
           }
         })

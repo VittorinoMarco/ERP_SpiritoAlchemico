@@ -1,6 +1,7 @@
 import type { RecordModel } from 'pocketbase';
 
-export type ProductCategory = 'liquore' | 'amaro' | 'gin';
+/** Valori del campo select `products.categoria` nel database reale. */
+export type ProductCategory = 'amaro' | 'limoncello' | 'gin' | 'bitter' | 'vermouth';
 
 export interface Product extends RecordModel {
   nome: string;
@@ -17,13 +18,22 @@ export interface Product extends RecordModel {
 }
 
 export const CATEGORY_LABELS: Record<ProductCategory, string> = {
-  liquore: 'Liquore',
   amaro: 'Amaro',
-  gin: 'Gin'
+  limoncello: 'Limoncello',
+  gin: 'Gin',
+  bitter: 'Bitter',
+  vermouth: 'Vermouth'
 };
 
 export const CATEGORY_BADGE_COLORS: Record<ProductCategory, string> = {
-  liquore: 'bg-amber-100 text-amber-800',
   amaro: 'bg-rose-100 text-rose-800',
-  gin: 'bg-sky-100 text-sky-800'
+  limoncello: 'bg-amber-100 text-amber-800',
+  gin: 'bg-sky-100 text-sky-800',
+  bitter: 'bg-red-100 text-red-800',
+  vermouth: 'bg-violet-100 text-violet-800'
 };
+
+export const CATEGORY_OPTIONS = (Object.keys(CATEGORY_LABELS) as ProductCategory[]).map((value) => ({
+  value,
+  label: CATEGORY_LABELS[value]
+}));

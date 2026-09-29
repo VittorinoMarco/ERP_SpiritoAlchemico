@@ -7,6 +7,7 @@ export interface Inventory extends RecordModel {
   giacenza: number;
   giacenza_minima: number;
   lotto?: string;
+  lotto_dogana?: string;
   data_scadenza?: string;
   ubicazione?: string;
 }
@@ -19,6 +20,8 @@ export interface InventoryMovement extends RecordModel {
   ordine_rif?: string;
   data_movimento: string;
   utente?: string;
+  lotto_interno?: string;
+  lotto_dogana?: string;
   /** Relation → expenses: movimento generato da acquisto/fornitore già in uscite */
   expense_id?: string;
 }

@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { currentRole } from '$lib/stores/auth';
+  import type { OrderStato } from '$lib/types/order';
+  import { STATO_LABELS, STATO_BADGE_COLORS } from '$lib/types/order';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
@@ -9,7 +13,7 @@
   import ClientModal from '$lib/components/clients/ClientModal.svelte';
   import type { Client, ClientTipo } from '$lib/types/client';
   import { TIPO_LABELS, TIPO_BADGE_COLORS } from '$lib/types/client';
-  import { ArrowLeft, Edit, MapPin, Receipt, FileText, Trash2 } from 'lucide-svelte';
+  import { ArrowLeft, Edit, MapPin, Receipt, FileText, Trash2, Plus } from 'lucide-svelte';
 
   const clientId = $page.params.id;
 
@@ -22,8 +26,10 @@
   export let data: { user?: { id?: string; role?: string } | null } = { user: null };
   $: user = data.user ?? (pb.authStore.model as { id?: string; role?: string } | null);
   $: isAdmin = (user?.role || (user as any)?.ruolo) === 'admin';
-  $: totaleFatturato = orders.reduce((s, o) => s + (Number(o.totale) || 0), 0);
-  $: ordiniTotali = orders.length;
+  // Bozze e annullati non sono fatturato
+  $: validOrders = orders.filter((o) => o.stato !== 'annullato' && o.stato !== 'bozza');
+  $: totaleFatturato = validOrders.reduce((s, o) => s + (Number(o.totale) || 0), 0);
+  $: ordiniTotali = validOrders.length;
   $: mediaOrdine = ordiniTotali > 0 ? totaleFatturato / ordiniTotali : 0;
 
   onMount(async () => {
@@ -70,7 +76,7 @@
     pb.collection('clients')
       .getOne(clientId, { expand: 'agente' })
       .then((c) => {
-        client = c;
+        client = c as any;
       });
     modalOpen = false;
   }
@@ -110,41 +116,38 @@
   <title>{client?.ragione_sociale ?? 'Cliente'} | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-6">
-  <div class="flex items-center justify-between gap-4">
-    <div class="flex items-center gap-4">
-      <button
-        type="button"
-        class="p-2 rounded-2xl text-[#6B7280] hover:bg-black/5 transition-colors"
-        onclick={() => goto('/clienti')}
-        aria-label="Indietro"
-      >
-        <ArrowLeft class="h-5 w-5" />
-      </button>
-      <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">
-        {client?.ragione_sociale ?? 'Cliente'}
-      </h1>
+<div class="space-y-5 fade-in">
+  <div class="flex items-center gap-3">
+    <button
+      type="button"
+      class="h-11 w-11 grid place-items-center rounded-2xl bg-white/80 border border-black/[0.06] hover:bg-white shrink-0"
+      onclick={() => goto('/clienti')}
+      aria-label="Torna ai clienti"
+    >
+      <ArrowLeft class="h-5 w-5" />
+    </button>
+    <div class="min-w-0 flex-1">
+      <p class="text-xs text-[#6B7280]">Cliente</p>
+      <h1 class="text-xl sm:text-3xl font-bold tracking-tight truncate">{client?.ragione_sociale ?? '…'}</h1>
     </div>
-    {#if isAdmin && client}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="rounded-2xl text-red-600 hover:bg-red-50 hover:text-red-700"
-        onclick={handleDelete}
-        disabled={deleting}
-      >
-        <Trash2 class="h-4 w-4" />
-        Elimina
-      </Button>
+    {#if client && !loading}
+      <div class="flex items-center gap-2 shrink-0">
+        {#if $currentRole !== 'magazziniere'}
+          <Button size="sm" onclick={() => goto(`/ordini/nuovo?cliente=${clientId}`)}>
+            <Plus class="h-4 w-4" /><span class="hidden sm:inline">Nuovo ordine</span>
+          </Button>
+        {/if}
+        {#if isAdmin}
+          <Button variant="ghost" size="sm" className="!text-rose-600 hover:!bg-rose-50" onclick={handleDelete} disabled={deleting}>
+            <Trash2 class="h-4 w-4" /><span class="hidden sm:inline">Elimina</span>
+          </Button>
+        {/if}
+      </div>
     {/if}
   </div>
 
   {#if loading}
-    <Card>
-      <div class="py-16 text-center">
-        <p class="text-sm text-[#6B7280]">Caricamento...</p>
-      </div>
-    </Card>
+    <Spinner />
   {:else if !client}
     <Card>
       <div class="py-16 text-center">
@@ -223,7 +226,7 @@
               <dt class="text-sm text-[#6B7280]">Agente</dt>
               <dd class="text-sm font-medium text-[#1A1A1A]">
                 <select
-                  class="rounded-2xl border border-black/5 bg-white/80 px-3 py-1.5 text-sm focus:visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547]"
+                  class="field w-auto"
                   value={client.agente ?? ''}
                   onchange={(e) => changeAgente((e.target as HTMLSelectElement).value)}
                 >
@@ -264,41 +267,27 @@
 
       <!-- Card storico ordini -->
       <Card className="lg:col-span-2">
-        <h2 class="text-sm font-medium text-[#1A1A1A] mb-4">Storico ordini</h2>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-black/5">
-                <th class="px-3 py-2 text-left text-xs font-medium text-[#6B7280]">N. Ordine</th>
-                <th class="px-3 py-2 text-left text-xs font-medium text-[#6B7280]">Data</th>
-                <th class="px-3 py-2 text-left text-xs font-medium text-[#6B7280]">Stato</th>
-                <th class="px-3 py-2 text-right text-xs font-medium text-[#6B7280]">Totale</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each orders.slice(0, 10) as o}
-                <tr class="border-b border-black/5 last:border-0 hover:bg-[#FFFDE7] transition-colors">
-                  <td class="px-3 py-2 font-medium text-[#1A1A1A]">{o.numero_ordine ?? '—'}</td>
-                  <td class="px-3 py-2 text-[#6B7280]">{formatDate(o.data_ordine)}</td>
-                  <td class="px-3 py-2">
-                    <span
-                      class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium {(o.stato === 'consegnato' || o.stato === 'completato')
-                        ? 'bg-green-100 text-green-800'
-                        : o.stato === 'annullato'
-                          ? 'bg-gray-100 text-gray-600'
-                          : 'bg-amber-100 text-amber-800'}"
-                    >
-                      {o.stato ?? '—'}
+        <h2 class="text-sm font-semibold mb-3">Storico ordini</h2>
+        {#if orders.length > 0}
+          <ul class="divide-y divide-black/5 -mx-2">
+            {#each orders.slice(0, 10) as o (o.id)}
+              <li>
+                <a href="/ordini/{o.id}" class="flex items-center justify-between gap-3 rounded-2xl px-3 py-3 hover:bg-[#FFFDE7] transition-colors min-h-[52px]">
+                  <span class="min-w-0">
+                    <span class="block text-sm font-medium truncate">{o.numero_ordine ?? '—'}</span>
+                    <span class="block text-xs text-[#6B7280]">{formatDate(o.data_ordine)}</span>
+                  </span>
+                  <span class="flex items-center gap-3 shrink-0">
+                    <span class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium {STATO_BADGE_COLORS[o.stato as OrderStato] ?? 'bg-gray-100'}">
+                      {STATO_LABELS[o.stato as OrderStato] ?? o.stato ?? '—'}
                     </span>
-                  </td>
-                  <td class="px-3 py-2 text-right font-medium text-[#1A1A1A]">
-                    {formatEuro(Number(o.totale) || 0)}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+                    <span class="text-sm font-semibold w-24 text-right">{formatEuro(Number(o.totale) || 0)}</span>
+                  </span>
+                </a>
+              </li>
+            {/each}
+          </ul>
+        {/if}
         {#if orders.length === 0}
           <p class="py-8 text-center text-sm text-[#6B7280]">Nessun ordine</p>
         {:else if orders.length > 10}
@@ -310,8 +299,8 @@
       <Card>
         <h2 class="text-sm font-medium text-[#1A1A1A] mb-4">Note e comunicazioni</h2>
         {#if client.note}
-          <div class="text-sm text-[#1A1A1A] prose prose-sm max-w-none">
-            {@html client.note}
+          <div class="text-sm text-[#1A1A1A] whitespace-pre-line break-words">
+            {client.note}
           </div>
         {:else}
           <p class="text-sm text-[#6B7280]">Nessuna nota</p>

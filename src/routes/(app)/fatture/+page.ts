@@ -1,5 +1,5 @@
-import type { LayoutLoad } from './$types';
+import type { PageLoad } from './$types';
 
-export const load: LayoutLoad = async () => {
+export const load: PageLoad = async () => {
   return {};
 };

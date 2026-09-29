@@ -37,17 +37,19 @@ export interface InvoicePdfData {
   totale_imponibile: number;
   iva: number;
   totale: number;
+  kind?: 'proforma' | 'gestionale';
 }
 
+/** Dati intestazione: NON sono una fattura elettronica. P.IVA placeholder vietata. */
 const DEFAULT_COMPANY: CompanyData = {
-  ragione_sociale: 'Spirito Alchemico S.r.l.',
-  indirizzo: 'Via Example 1',
-  citta: 'Milano',
-  cap: '20100',
-  provincia: 'MI',
-  partita_iva: 'IT12345678901',
-  codice_fiscale: '12345678901'
+  ragione_sociale: 'Spirito Alchemico'
 };
+
+export const PDF_FISCALE_DISCLAIMER =
+  'COPIA GESTIONALE — non è una fattura elettronica (FatturaPA). Non inviare al cliente come documento fiscale.';
+
+export const PDF_PROFORMA_DISCLAIMER =
+  'PROFORMA — proposta commerciale. Non è una fattura fiscale né un XML FatturaPA.';
 
 export function generateInvoicePdf(
   invoice: InvoicePdfData,
@@ -77,11 +79,25 @@ export function generateInvoicePdf(
   });
   y += 10;
 
+  const kind = invoice.kind === 'proforma' ? 'proforma' : 'gestionale';
+  const title =
+    kind === 'proforma'
+      ? `PROFORMA N. ${invoice.numero_fattura}`
+      : `COPIA GESTIONALE N. ${invoice.numero_fattura}`;
+  const disclaimer = kind === 'proforma' ? PDF_PROFORMA_DISCLAIMER : PDF_FISCALE_DISCLAIMER;
+  const filePrefix = kind === 'proforma' ? 'Proforma' : 'Copia_gestionale';
+
   // Title
-  doc.setFontSize(16);
+  doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.text(`FATTURA N. ${invoice.numero_fattura}`, 20, y);
-  y += 12;
+  doc.text(title, 20, y);
+  y += 8;
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(120);
+  doc.text(disclaimer, 20, y, { maxWidth: pageW - 40 });
+  doc.setTextColor(0);
+  y += 14;
 
   // Dates
   doc.setFontSize(10);
@@ -157,5 +173,10 @@ export function generateInvoicePdf(
   doc.text('Totale:', 120, y);
   doc.text(invoice.totale.toFixed(2) + ' €', 185, y);
 
-  doc.save(`Fattura_${invoice.numero_fattura}.pdf`);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(120);
+  doc.text(disclaimer, 20, 285, { maxWidth: pageW - 40 });
+
+  doc.save(`${filePrefix}_${invoice.numero_fattura}.pdf`);
 }

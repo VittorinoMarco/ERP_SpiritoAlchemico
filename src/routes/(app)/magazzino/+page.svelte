@@ -1,4 +1,8 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
+  import { ymdLocal } from '$lib/utils/format';
   import { onMount } from 'svelte';
   import { pb } from '$lib/pocketbase';
   import Card from '$lib/components/ui/Card.svelte';
@@ -14,7 +18,8 @@
     ArrowUpFromLine,
     RotateCcw,
     ImageOff,
-    Search
+    Search,
+    ArrowLeftRight
   } from 'lucide-svelte';
   import MagazzinoSupplierPanel from '$lib/components/magazzino/MagazzinoSupplierPanel.svelte';
   import type { Inventory, InventoryMovement, MovementTipo } from '$lib/types/inventory';
@@ -39,6 +44,7 @@
   let movimentoProdotto = '';
   let movimentoQuantita = '';
   let movimentoCausale = '';
+  let movimentoLottoDogana = '';
   let movimentoNote = '';
   let movimentoSaving = false;
   let filterProdotto = '';
@@ -61,7 +67,7 @@
   $: sottoScortaList = inventory.filter((inv) => isSottoScortaGiacenza(inv.giacenza));
   $: sottoScortaNum = sottoScortaList.length;
 
-  $: today = new Date().toISOString().split('T')[0];
+  $: today = ymdLocal(new Date());
   $: movimentiOggi = movements.filter(
     (m) => m.data_movimento?.startsWith(today)
   ).length;
@@ -97,7 +103,7 @@
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const key = d.toISOString().split('T')[0];
+      const key = ymdLocal(d);
       byDay[key] = 0;
     }
     for (const m of movements) {
@@ -204,7 +210,8 @@
 
   async function saveMovimento() {
     const qty = parseInt(movimentoQuantita, 10);
-    if (!movimentoProdotto || isNaN(qty) || qty <= 0) return;
+    if (!movimentoProdotto || isNaN(qty)) return;
+    if (movimentoTipo === 'rettifica' ? qty < 0 : qty <= 0) return;
     movimentoSaving = true;
     try {
       const uid = (pb.authStore.model as { id?: string } | null)?.id;
@@ -222,28 +229,37 @@
           prodottoId: movimentoProdotto,
           quantita: qty,
           causale: movimentoCausale.trim() || undefined,
-          utenteId: uid
+          utenteId: uid,
+          lottoDogana: movimentoLottoDogana.trim() || undefined
         });
         mov = { id: r.movementId };
       } else {
-        const delta = qty;
+        // RETTIFICA = inventario fisico: la quantità inserita è la GIACENZA CONTATA (non un incremento).
+        // Prima la rettifica poteva solo aumentare la giacenza; ora corregge anche in diminuzione.
+        const fresh = await pb.collection('inventory').getFullList({ filter: `prodotto = "${movimentoProdotto}"` });
+        const inv = fresh[0] as { id: string; giacenza?: number } | undefined;
+        const prima = inv?.giacenza ?? 0;
+        const contata = qty;
+        const diff = contata - prima;
+        if (diff === 0) {
+          alert('La giacenza contata coincide con quella a sistema: nessuna rettifica necessaria.');
+          movimentoSaving = false;
+          return;
+        }
         const m = await pb.collection('inventory_movements').create({
           prodotto: movimentoProdotto,
           tipo: 'rettifica',
-          quantita: Math.abs(qty),
-          causale: movimentoCausale.trim() || undefined,
+          quantita: Math.abs(diff),
+          causale: `Rettifica inventario: da ${prima} a ${contata}${movimentoCausale.trim() ? ` · ${movimentoCausale.trim()}` : ''}`,
           utente: uid
         });
         mov = { id: (m as { id: string }).id };
-        let inv = inventory.find((i) => i.prodotto === movimentoProdotto);
         if (inv) {
-          await pb.collection('inventory').update(inv.id, {
-            giacenza: Math.max(0, (inv.giacenza ?? 0) + delta)
-          });
+          await pb.collection('inventory').update(inv.id, { giacenza: contata });
         } else {
           await pb.collection('inventory').create({
             prodotto: movimentoProdotto,
-            giacenza: Math.max(0, delta),
+            giacenza: contata,
             giacenza_minima: 0
           });
         }
@@ -280,6 +296,7 @@
       movimentoProdotto = '';
       movimentoQuantita = '';
       movimentoCausale = '';
+      movimentoLottoDogana = '';
       movimentoNote = '';
     } catch (e) {
       console.error(e);
@@ -329,15 +346,14 @@
   <title>Magazzino | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-6">
-  <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">Magazzino</h1>
+<div class="space-y-5 fade-in">
+  <PageHeader
+    titolo="Magazzino"
+    sottotitolo="Giacenza per prodotto. I carichi da ora hanno lotto interno L001… e, se lo inserisci, lotto dogana."
+  />
 
   {#if loading}
-    <Card>
-      <div class="py-16 text-center">
-        <p class="text-sm text-[#6B7280]">Caricamento...</p>
-      </div>
-    </Card>
+    <Spinner />
   {:else}
     <section class="page-grid">
       <div class="rounded-3xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-5 lg:p-6">
@@ -359,13 +375,11 @@
       </div>
     </section>
 
-    <div class="flex justify-center gap-2">
+    <div class="chip-row">
       {#each ['giacenze', 'movimenti', 'report'] as tabId}
         <button
           type="button"
-          class="rounded-full px-5 py-2.5 text-sm font-medium transition-all duration-200 {activeTab === tabId
-            ? 'bg-[#F5D547] text-[#1A1A1A]'
-            : 'bg-[#E5E7EB] text-[#6B7280] hover:bg-[#D1D5DB]'}"
+          class="chip {activeTab === tabId ? 'chip-active' : ''}"
           onclick={() => (activeTab = tabId as TabId)}
         >
           {tabId === 'giacenze' ? 'Giacenze' : tabId === 'movimenti' ? 'Movimenti' : 'Report'}
@@ -377,19 +391,19 @@
     {#if activeTab === 'giacenze'}
       <Card>
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-4">
-          <div class="flex flex-wrap items-center gap-2">
-            <div class="relative">
-              <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
+          <div class="flex flex-wrap items-center gap-2 w-full">
+            <div class="relative w-full sm:w-64">
+              <Search class="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
               <input
-                type="text"
+                type="search"
                 bind:value={filterProdotto}
                 placeholder="Cerca prodotto..."
-                class="rounded-2xl border border-black/5 bg-white/80 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+                class="field w-full pl-11"
               />
             </div>
             <select
               bind:value={filterUbicazione}
-              class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm"
+              class="field w-full sm:w-auto"
             >
               <option value="">Tutte le ubicazioni</option>
               {#each ubicazioni as u}
@@ -402,7 +416,32 @@
             </label>
           </div>
         </div>
-        <div class="overflow-x-auto">
+        <!-- Mobile -->
+        <ul class="md:hidden divide-y divide-black/5 -mx-1">
+          {#each filteredGiacenze as inv (inv.id)}
+            {@const riserva = draftReservations.get(inv.prodotto) ?? 0}
+            {@const sottoScorta = isSottoScortaGiacenza(inv.giacenza)}
+            <li class="py-3 px-1 flex items-center gap-3">
+              {#if inv.expand?.prodotto && getImageUrl(inv.expand.prodotto)}
+                <img src={getImageUrl(inv.expand.prodotto)} alt="" class="h-12 w-12 rounded-xl object-cover shrink-0" />
+              {:else}
+                <div class="h-12 w-12 rounded-xl bg-[#F3F4F6] grid place-items-center shrink-0"><ImageOff class="h-5 w-5 text-[#9CA3AF]" /></div>
+              {/if}
+              <div class="min-w-0 flex-1">
+                <p class="font-medium truncate">{inv.expand?.prodotto?.nome ?? '—'}</p>
+                <p class="text-xs text-[#6B7280] truncate">
+                  {inv.expand?.prodotto?.sku ?? '—'}{#if inv.ubicazione} · {inv.ubicazione}{/if}{#if inv.data_scadenza} · scad. {formatDate(inv.data_scadenza)}{/if}
+                </p>
+                {#if riserva > 0}<p class="text-xs text-amber-800">Riserva bozze: {riserva}</p>{/if}
+              </div>
+              <div class="text-right shrink-0">
+                <p class="text-xl font-bold leading-none {sottoScorta ? 'text-rose-600' : ''}">{inv.giacenza ?? 0}</p>
+                {#if sottoScorta}<span class="text-[10px] font-medium text-rose-700">Sotto scorta</span>{/if}
+              </div>
+            </li>
+          {/each}
+        </ul>
+        <div class="hidden md:block overflow-x-auto">
           <table class="w-full">
             <thead>
               <tr class="border-b border-black/5">
@@ -412,7 +451,8 @@
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase" title="Ordini in bozza">Riserva bozze</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase" title="Giacenza − impegni bozza">Previsione</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Minima</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Lotto</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Lotto int.</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Lotto dogana</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Scadenza</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Ubicazione</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Stato</th>
@@ -457,6 +497,7 @@
                   </td>
                   <td class="px-4 py-3 text-sm text-[#6B7280]">{inv.giacenza_minima ?? 0}</td>
                   <td class="px-4 py-3 text-sm text-[#6B7280]">{inv.lotto ?? '—'}</td>
+                  <td class="px-4 py-3 text-sm text-[#6B7280]">{inv.lotto_dogana ?? '—'}</td>
                   <td class="px-4 py-3 text-sm text-[#6B7280]">{formatDate(inv.data_scadenza)}</td>
                   <td class="px-4 py-3 text-sm text-[#6B7280]">{inv.ubicazione ?? '—'}</td>
                   <td class="px-4 py-3">
@@ -472,7 +513,7 @@
           </table>
         </div>
         {#if filteredGiacenze.length === 0}
-          <p class="py-12 text-center text-sm text-[#6B7280]">Nessuna giacenza trovata</p>
+          <EmptyState icon={Package} titolo="Nessuna giacenza" testo="Nessun prodotto corrisponde ai filtri." />
         {/if}
       </Card>
     {/if}
@@ -484,7 +525,7 @@
           <div class="flex flex-wrap items-center gap-2">
             <select
               bind:value={filterMovTipo}
-              class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm"
+              class="field w-auto"
             >
               <option value="">Tutti i tipi</option>
               <option value="carico">Carico</option>
@@ -493,15 +534,15 @@
             </select>
             <select
               bind:value={filterMovProdotto}
-              class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm"
+              class="field w-auto"
             >
               <option value="">Tutti i prodotti</option>
               {#each products as p}
                 <option value={p.id}>{p.nome} ({p.sku})</option>
               {/each}
             </select>
-            <input type="date" bind:value={filterMovFrom} class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm" />
-            <input type="date" bind:value={filterMovTo} class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm" />
+            <input type="date" bind:value={filterMovFrom} class="field w-auto" />
+            <input type="date" bind:value={filterMovTo} class="field w-auto" />
           </div>
           <div class="flex flex-wrap items-center gap-2 justify-end">
             <MagazzinoSupplierPanel {products} onApplied={loadData} />
@@ -535,14 +576,19 @@
                 <p class="text-sm font-medium text-[#1A1A1A]">
                   {MOVIMENTO_LABELS[m.tipo as MovementTipo]} · {m.expand?.prodotto?.nome ?? '—'} · {m.quantita} pz
                 </p>
-                <p class="text-xs text-[#6B7280]">{m.causale ?? '—'} · {userLabel(m.expand?.utente)}</p>
+                <p class="text-xs text-[#6B7280]">
+                  {m.causale ?? '—'}
+                  {#if m.lotto_interno} · {m.lotto_interno}{/if}
+                  {#if m.lotto_dogana} · dogana {m.lotto_dogana}{/if}
+                  · {userLabel(m.expand?.utente)}
+                </p>
               </div>
               <span class="text-xs text-[#6B7280] flex-shrink-0">{formatDate(m.data_movimento)}</span>
             </div>
           {/each}
         </div>
         {#if filteredMovimenti.length === 0}
-          <p class="py-12 text-center text-sm text-[#6B7280]">Nessun movimento</p>
+          <EmptyState icon={ArrowLeftRight} titolo="Nessun movimento" testo="Non ci sono movimenti con questi filtri." />
         {/if}
       </Card>
     {/if}
@@ -572,7 +618,7 @@
             <h2 class="text-sm font-medium text-[#1A1A1A]">Movimenti del periodo</h2>
             <select
               bind:value={reportPeriod}
-              class="rounded-2xl border border-black/5 bg-white/80 px-3 py-1.5 text-sm"
+              class="field w-auto"
             >
               <option value="7">Ultimi 7 giorni</option>
               <option value="14">Ultimi 14 giorni</option>
@@ -635,7 +681,7 @@
         id="prodotto"
         bind:value={movimentoProdotto}
         required
-        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+        class="field w-full"
       >
         <option value="">Seleziona prodotto</option>
         {#each products.filter((p) => p.attivo) as p}
@@ -644,15 +690,22 @@
       </select>
     </div>
     <div>
-      <label for="quantita" class="block text-sm font-medium text-[#1A1A1A] mb-1.5">Quantità</label>
+      <label for="quantita" class="block text-sm font-medium text-[#1A1A1A] mb-1.5">
+        {movimentoTipo === 'rettifica' ? 'Giacenza contata (pezzi)' : 'Quantità'}
+      </label>
       <input
         id="quantita"
         type="number"
-        min="1"
+        min={movimentoTipo === 'rettifica' ? 0 : 1}
         bind:value={movimentoQuantita}
         required
-        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+        class="field w-full"
       />
+      {#if movimentoTipo === 'rettifica'}
+        <p class="mt-1 text-xs text-[#6B7280]">
+          Inserisci quanti pezzi hai contato a scaffale: il sistema calcola la differenza e la registra.
+        </p>
+      {/if}
     </div>
     <div>
       <label for="causale" class="block text-sm font-medium text-[#1A1A1A] mb-1.5">Causale</label>
@@ -661,9 +714,26 @@
         type="text"
         bind:value={movimentoCausale}
         placeholder="Es. Carico merce, Scarico ordine..."
-        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+        class="field w-full"
       />
     </div>
+    {#if movimentoTipo === 'carico'}
+      <div>
+        <label for="lotto_dogana" class="block text-sm font-medium text-[#1A1A1A] mb-1.5">
+          Lotto dogana (opzionale)
+        </label>
+        <input
+          id="lotto_dogana"
+          type="text"
+          bind:value={movimentoLottoDogana}
+          placeholder="Numero lotto in bolla/dogana"
+          class="field w-full"
+        />
+        <p class="mt-1 text-xs text-[#6B7280]">
+          Il lotto interno (L001, L002, …) viene assegnato in automatico. La dogana serve alla tracciabilità.
+        </p>
+      </div>
+    {/if}
     <div class="flex justify-end gap-3">
       <Button type="button" variant="ghost" onclick={() => (modalOpen = false)}>
         Annulla

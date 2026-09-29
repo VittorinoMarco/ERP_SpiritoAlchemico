@@ -1,4 +1,10 @@
 <script lang="ts">
+  import Button from '$lib/components/ui/Button.svelte';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import { currentRole } from '$lib/stores/auth';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  let visibleCount = 50;
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
   import { onMount } from 'svelte';
   import { pb } from '$lib/pocketbase';
   import Card from '$lib/components/ui/Card.svelte';
@@ -74,7 +80,7 @@
         }),
         pb.collection('users').getFullList({ fields: 'id,nome,cognome,email' })
       ]);
-      activities = logList as ActivityRecord[];
+      activities = logList as unknown as ActivityRecord[];
       users = usersList.map((u: any) => ({
         id: u.id,
         name: u.nome ? [u.nome, u.cognome].filter(Boolean).join(' ') : u.email
@@ -158,27 +164,26 @@
   <title>Registro Attività | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-6">
-  <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">Registro Attività</h1>
+<div class="space-y-5 fade-in">
+  <PageHeader titolo="Registro Attività" sottotitolo={$currentRole === 'admin' ? 'Cronologia delle operazioni di tutti gli utenti.' : 'Le tue operazioni recenti.'} />
 
   <Card>
-    <div class="flex flex-wrap items-center gap-4 mb-6">
-      <div class="flex items-center gap-2 text-sm text-[#6B7280]">
+    <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-3 mb-6">
+      <div class="hidden sm:flex items-center gap-2 text-sm text-[#6B7280]">
         <Filter class="h-4 w-4" />
         Filtri
       </div>
-      <select
-        bind:value={filterUtente}
-        class="rounded-2xl border border-black/5 bg-white/80 px-3 py-2 text-sm focus:ring-2 focus:ring-[#F5D547]"
-      >
-        <option value="">Tutti gli utenti</option>
-        {#each users as u}
-          <option value={u.id}>{u.name ?? u.id}</option>
-        {/each}
-      </select>
+      {#if $currentRole === 'admin'}
+        <select bind:value={filterUtente} class="field w-full sm:w-auto">
+          <option value="">Tutti gli utenti</option>
+          {#each users as u}
+            <option value={u.id}>{u.name ?? u.id}</option>
+          {/each}
+        </select>
+      {/if}
       <select
         bind:value={filterAzione}
-        class="rounded-2xl border border-black/5 bg-white/80 px-3 py-2 text-sm focus:ring-2 focus:ring-[#F5D547]"
+        class="field w-full sm:w-auto"
       >
         <option value="">Tutti i tipi</option>
         {#each azioniUniche as az}
@@ -188,33 +193,33 @@
       <input
         type="date"
         bind:value={filterDateFrom}
-        class="rounded-2xl border border-black/5 bg-white/80 px-3 py-2 text-sm focus:ring-2 focus:ring-[#F5D547]"
-        placeholder="Da"
+        class="field w-full sm:w-auto"
+        aria-label="Da"
       />
       <input
         type="date"
         bind:value={filterDateTo}
-        class="rounded-2xl border border-black/5 bg-white/80 px-3 py-2 text-sm focus:ring-2 focus:ring-[#F5D547]"
-        placeholder="A"
+        class="field w-full sm:w-auto"
+        aria-label="A"
       />
     </div>
 
     {#if loading}
-      <p class="text-sm text-[#6B7280] py-8">Caricamento...</p>
+      <Spinner />
     {:else if filteredActivities.length === 0}
-      <p class="text-sm text-[#6B7280] py-8">Nessuna attività registrata.</p>
+      <EmptyState icon={Filter} titolo="Nessuna attività" testo="Non ci sono operazioni registrate con questi filtri." />
     {:else}
       <div class="relative">
         <div class="absolute left-6 top-0 bottom-0 w-px bg-black/5"></div>
         <div class="space-y-4">
-          {#each filteredActivities as activity (activity.id)}
+          {#each filteredActivities.slice(0, visibleCount) as activity (activity.id)}
             <div class="relative flex gap-4">
               <div
                 class="flex-shrink-0 mt-1 w-12 h-12 rounded-full flex items-center justify-center {getColor(activity.azione)} z-10"
               >
                 <svelte:component this={getIcon(activity.azione)} class="h-5 w-5" />
               </div>
-              <Card class="flex-1 !p-4 !rounded-3xl">
+              <Card className="flex-1 min-w-0 !p-4 !rounded-3xl">
                 <div class="flex items-start justify-between gap-4">
                   <div>
                     <p class="text-sm font-medium text-[#1A1A1A]">
@@ -231,6 +236,13 @@
           {/each}
         </div>
       </div>
+      {#if filteredActivities.length > visibleCount}
+        <div class="mt-6 flex justify-center">
+          <Button variant="ghost" onclick={() => (visibleCount += 50)}>
+            Mostra altre ({filteredActivities.length - visibleCount})
+          </Button>
+        </div>
+      {/if}
     {/if}
   </Card>
 </div>

@@ -2,8 +2,11 @@ import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
 import { pb } from '$lib/pocketbase';
 import { isSottoScortaGiacenza } from '$lib/constants/inventory';
+import { sottoScortaCount } from '$lib/stores/magazzino';
+import type { Role } from '$lib/stores/auth';
 
 const READ_KEY = 'erp_notifications_read';
+const MAX_READ_IDS = 500;
 
 export type NotificationTipo = 'sotto_scorta' | 'fattura_scaduta' | 'ordine_attesa';
 
@@ -20,10 +23,7 @@ function loadReadIds(): Set<string> {
   if (!browser) return new Set();
   try {
     const raw = localStorage.getItem(READ_KEY);
-    if (raw) {
-      const arr = JSON.parse(raw) as string[];
-      return new Set(arr);
-    }
+    if (raw) return new Set(JSON.parse(raw) as string[]);
   } catch {
     // ignore
   }
@@ -33,16 +33,25 @@ function loadReadIds(): Set<string> {
 function saveReadIds(ids: Set<string>) {
   if (!browser) return;
   try {
-    localStorage.setItem(READ_KEY, JSON.stringify([...ids]));
+    // Evita che la lista cresca all'infinito: teniamo solo gli ultimi ID
+    const arr = [...ids].slice(-MAX_READ_IDS);
+    localStorage.setItem(READ_KEY, JSON.stringify(arr));
   } catch {
     // ignore
   }
+}
+
+/** Data locale YYYY-MM-DD (toISOString userebbe UTC e sbaglierebbe dopo mezzanotte). */
+function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function createNotificationsStore() {
   const { subscribe, set } = writable<Notification[]>([]);
   const readIds = writable<Set<string>>(loadReadIds());
   let currentItems: Notification[] = [];
+  let currentRole: Role | null = null;
 
   const store = {
     subscribe,
@@ -63,77 +72,118 @@ function createNotificationsStore() {
         return next;
       });
     },
-    fetch: async () => {
-      try {
-        const today = new Date().toISOString().split('T')[0];
-        const [invList, invList2, ordList] = await Promise.all([
-          pb.collection('inventory').getFullList({ expand: 'prodotto' }),
-          pb.collection('invoices').getFullList({
-            expand: 'cliente',
-            filter: `data_scadenza < "${today}" && stato != "pagata"`
-          }),
-          pb.collection('orders').getFullList({
-            filter: 'stato = "confermato"',
-            sort: '-data_ordine'
-          })
-        ]);
+    /** Carica le notifiche pertinenti per il ruolo (ogni sorgente è indipendente dalle altre). */
+    fetch: async (role: Role | null = currentRole) => {
+      currentRole = role;
+      if (!role) {
+        currentItems = [];
+        set([]);
+        return;
+      }
 
-        const notifs: Notification[] = [];
+      const wantsInventory = role === 'admin' || role === 'magazziniere';
+      const wantsInvoices = role === 'admin';
+      const wantsOrders = role === 'admin';
+      const today = localToday();
 
-        const sottoScorta = invList.filter((i) => isSottoScortaGiacenza(i.giacenza));
+      const [inv, invoices, orders] = await Promise.allSettled([
+        wantsInventory
+          ? pb.collection('inventory').getFullList({ expand: 'prodotto' })
+          : Promise.resolve([]),
+        wantsInvoices
+          ? pb.collection('invoices').getFullList({
+              expand: 'cliente',
+              filter: `data_scadenza < "${today}" && stato != "pagata"`
+            })
+          : Promise.resolve([]),
+        wantsOrders
+          ? pb.collection('orders').getFullList({
+              // confermati da evadere + bozze inviate dagli agenti in attesa di conferma
+              filter: 'stato = "confermato" || (stato = "bozza" && agente != "")',
+              sort: '-data_ordine'
+            })
+          : Promise.resolve([])
+      ]);
+
+      const notifs: Notification[] = [];
+
+      if (inv.status === 'fulfilled') {
+        const sottoScorta = inv.value.filter((i) => isSottoScortaGiacenza(i.giacenza));
+        sottoScortaCount.set(sottoScorta.length);
         if (sottoScorta.length > 0) {
+          // L'ID dipende dall'elenco dei prodotti: se ne finiscono di nuovi, la notifica ricompare
+          const signature = sottoScorta
+            .map((i) => i.id)
+            .sort()
+            .join(',');
           notifs.push({
-            id: 'sotto_scorta:summary',
+            id: `sotto_scorta:${signature}`,
             tipo: 'sotto_scorta',
-            titolo: `${sottoScorta.length} prodotto${sottoScorta.length > 1 ? 'i' : ''} con giacenza ≤ 6`,
+            titolo: `${sottoScorta.length} prodott${sottoScorta.length > 1 ? 'i' : 'o'} con giacenza ≤ 6`,
             link: '/magazzino',
             created: new Date().toISOString(),
             recordId: 'summary'
           });
         }
+      }
 
-        for (const inv of invList2) {
-          const exp = inv.expand as { cliente?: { ragione_sociale?: string } } | undefined;
+      if (invoices.status === 'fulfilled') {
+        for (const f of invoices.value) {
+          const exp = f.expand as { cliente?: { ragione_sociale?: string } } | undefined;
           const cliente = exp?.cliente?.ragione_sociale ?? 'Cliente';
           notifs.push({
-            id: `fattura_scaduta:${inv.id}`,
+            id: `fattura_scaduta:${f.id}`,
             tipo: 'fattura_scaduta',
-            titolo: `Fattura scaduta: ${inv.numero_fattura ?? inv.id} - ${cliente}`,
-            link: `/fatture/${inv.id}`,
-            created: inv.updated ?? inv.created,
-            recordId: inv.id
+            titolo: `Fattura scaduta: ${f.numero_fattura ?? f.id} - ${cliente}`,
+            link: `/fatture/${f.id}`,
+            created: f.updated ?? f.created,
+            recordId: f.id
           });
         }
-
-        for (const ord of ordList) {
-          notifs.push({
-            id: `ordine_attesa:${ord.id}`,
-            tipo: 'ordine_attesa',
-            titolo: `Ordine in attesa: ${ord.numero_ordine ?? ord.id}`,
-            link: `/ordini/${ord.id}`,
-            created: ord.updated ?? ord.created,
-            recordId: ord.id
-          });
-        }
-
-        notifs.sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
-        currentItems = notifs;
-        set(notifs);
-      } catch {
-        currentItems = [];
-        set([]);
       }
+
+      if (orders.status === 'fulfilled') {
+        for (const o of orders.value) {
+          notifs.push({
+            id: `ordine_attesa:${o.id}`,
+            tipo: 'ordine_attesa',
+            titolo:
+              o.stato === 'bozza'
+                ? `Ordine da confermare: ${o.numero_ordine ?? o.id}`
+                : `Ordine da evadere: ${o.numero_ordine ?? o.id}`,
+            link: `/ordini/${o.id}`,
+            created: o.updated ?? o.created,
+            recordId: o.id
+          });
+        }
+      }
+
+      notifs.sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
+      currentItems = notifs;
+      set(notifs);
     },
     subscribeRealtime: () => {
       if (!browser) return () => {};
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      // Debounce: una raffica di eventi (es. import di più righe) genera un solo refresh
       const handler = () => {
-        store.fetch();
+        clearTimeout(timer);
+        timer = setTimeout(() => store.fetch(), 600);
       };
       const topics = ['inventory/*', 'invoices/*', 'orders/*'];
-      topics.forEach((t) => pb.realtime.subscribe(t, handler));
+      const unsubs: Promise<() => Promise<void>>[] = [];
+      for (const t of topics) {
+        unsubs.push(pb.realtime.subscribe(t, handler).catch(() => async () => {}));
+      }
       return () => {
-        topics.forEach((t) => pb.realtime.unsubscribe(t));
+        clearTimeout(timer);
+        unsubs.forEach((p) => p.then((off) => off()).catch(() => {}));
       };
+    },
+    reset: () => {
+      currentItems = [];
+      set([]);
+      sottoScortaCount.set(0);
     }
   };
   return store;

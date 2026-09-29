@@ -5,6 +5,7 @@
   import Button from '$lib/components/ui/Button.svelte';
   import type { Client, ClientTipo } from '$lib/types/client';
   import { pb } from '$lib/pocketbase';
+  import { currentUser } from '$lib/stores/auth';
 
   export let open = false;
   export let client: Client | null = null;
@@ -45,7 +46,7 @@
     note = client.note ?? '';
     errors = {};
   } else if (open && !client) {
-    ragione_sociale = tipo = partita_iva = codice_sdi = pec = indirizzo = citta = provincia = cap = telefono = email = note = '';
+    ragione_sociale = partita_iva = codice_sdi = pec = indirizzo = citta = provincia = cap = telefono = email = note = '';
     tipo = 'horeca';
     agente = '';
     errors = {};
@@ -80,6 +81,9 @@
       };
       if (isAdmin) {
         data.agente = agente || undefined;
+      } else if (!client?.id && $currentUser?.id) {
+        // Un agente che crea un cliente ne diventa l'agente: altrimenti non lo vedrebbe più (regole API)
+        data.agente = $currentUser.id;
       }
 
       let saved: Client;
@@ -115,7 +119,7 @@
         <select
           id="tipo"
           bind:value={tipo}
-          class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm text-[#1A1A1A] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547] focus-visible:ring-offset-2 transition-all duration-200"
+          class="field w-full"
         >
           <option value="horeca">HORECA</option>
           <option value="ecommerce">E-commerce</option>
@@ -130,7 +134,7 @@
         <select
           id="agente"
           bind:value={agente}
-          class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm text-[#1A1A1A] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547] focus-visible:ring-offset-2 transition-all duration-200"
+          class="field w-full"
         >
           <option value="">Nessun agente</option>
           {#each agents as a}
@@ -154,7 +158,7 @@
         type="text"
         bind:value={indirizzo}
         placeholder="Via, numero civico"
-        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#9CA3AF] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547] focus-visible:ring-offset-2 transition-all duration-200"
+        class="field w-full"
       />
     </div>
 
@@ -175,7 +179,7 @@
         id="note"
         bind:value={note}
         rows="3"
-        class="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#9CA3AF] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547] focus-visible:ring-offset-2 transition-all duration-200"
+        class="field w-full"
         placeholder="Note aggiuntive"
       ></textarea>
     </div>

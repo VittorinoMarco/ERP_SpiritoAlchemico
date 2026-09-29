@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Spinner from '$lib/components/ui/Spinner.svelte';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -253,13 +254,18 @@
   <title>{task?.titolo ?? 'Task'} | ERP</title>
 </svelte:head>
 
-<div class="max-w-6xl mx-auto space-y-4 pb-24 px-1 sm:px-0">
-  <div class="flex items-start gap-3 flex-wrap">
-    <Button variant="ghost" size="sm" className="!px-2 min-h-[44px] min-w-[44px]" onclick={() => goto('/tasks')}>
-      <ArrowLeft class="h-4 w-4" />
-    </Button>
+<div class="max-w-6xl mx-auto space-y-5 fade-in">
+  <div class="flex items-start gap-3">
+    <button
+      type="button"
+      class="h-11 w-11 grid place-items-center rounded-2xl bg-white/80 border border-black/[0.06] hover:bg-white shrink-0"
+      onclick={() => goto('/tasks')}
+      aria-label="Torna alle task"
+    >
+      <ArrowLeft class="h-5 w-5" />
+    </button>
     <div class="flex-1 min-w-0">
-      <h1 class="text-xl sm:text-2xl font-bold text-[#1A1A1A] break-words">
+      <h1 class="text-xl sm:text-3xl font-bold tracking-tight break-words">
         {task?.titolo ?? 'Task'}
       </h1>
       {#if task?.parent}
@@ -285,9 +291,7 @@
       </p>
     </Card>
   {:else if loading}
-    <div class="flex justify-center py-16 text-[#6B7280]">
-      <Loader2 class="h-10 w-10 animate-spin" />
-    </div>
+    <Spinner />
   {:else if !task}
     <Card><p class="text-sm text-[#6B7280]">Task non trovata.</p></Card>
   {:else}
@@ -309,7 +313,7 @@
               <textarea
                 id="desc"
                 rows="8"
-                class="w-full rounded-2xl border border-black/10 px-4 py-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#F5D547] min-h-[160px]"
+                class="field w-full"
                 bind:value={descrizione}
                 placeholder="Dettagli, criteri di accettazione, link…"
               ></textarea>
@@ -319,7 +323,7 @@
                 <label class="block text-xs font-medium text-[#6B7280] mb-1" for="stato">Stato</label>
                 <select
                   id="stato"
-                  class="w-full rounded-2xl border border-black/10 px-4 py-2.5 text-sm min-h-[44px] bg-white"
+                  class="field w-full"
                   bind:value={stato}
                 >
                   {#each BOARD_STATO_ORDER as s}
@@ -331,7 +335,7 @@
                 <label class="block text-xs font-medium text-[#6B7280] mb-1" for="pri">Priorità</label>
                 <select
                   id="pri"
-                  class="w-full rounded-2xl border border-black/10 px-4 py-2.5 text-sm min-h-[44px] bg-white"
+                  class="field w-full"
                   bind:value={priorita}
                 >
                   {#each ['bassa', 'media', 'alta', 'critica'] as p}
@@ -346,7 +350,7 @@
               </label>
               <select
                 id="ass"
-                class="w-full rounded-2xl border border-black/10 px-4 py-2.5 text-sm min-h-[44px] bg-white"
+                class="field w-full"
                 bind:value={assegnatario}
               >
                 <option value="">— Nessuno —</option>
@@ -364,7 +368,7 @@
             </div>
             <Input label="Etichette (separate da virgola)" bind:value={etichetteRaw} />
             <div class="flex gap-2 flex-wrap pt-1">
-              <Button variant="primary" size="sm" onclick={save} disabled={saving}>
+              <Button onclick={save} disabled={saving} className="w-full sm:w-auto">
                 {#if saving}
                   <Loader2 class="h-4 w-4 animate-spin" />
                 {:else}
@@ -463,7 +467,7 @@
           </div>
         </Card>
 
-        <div class="flex justify-end pt-2">
+        <div class="flex justify-end pt-2 pb-2">
           <Button variant="ghost" size="sm" className="!text-rose-600" onclick={deleteTask}>
             <Trash2 class="h-4 w-4" /> Elimina task
           </Button>

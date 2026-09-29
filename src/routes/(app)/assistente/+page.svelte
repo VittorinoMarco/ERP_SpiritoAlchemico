@@ -195,7 +195,7 @@
 
 <!-- Altezza fissa sotto la navbar: scroll solo nella colonna messaggi, non sulla pagina -->
 <div
-  class="flex flex-col gap-3 sm:gap-4 min-h-0 h-[calc(100dvh-7.5rem)] max-h-[calc(100dvh-7.5rem)] overflow-hidden"
+  class="flex flex-col gap-3 sm:gap-4 fill-viewport overflow-hidden"
 >
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 flex-shrink-0">
     <div class="flex items-center gap-3">
@@ -380,7 +380,7 @@
           <div class="flex gap-2 items-end">
             <textarea
               rows="2"
-              class="flex-1 rounded-2xl border border-black/10 px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#F5D547]"
+              class="field flex-1"
               placeholder={collectionMissing
                 ? 'Configura PocketBase…'
                 : apiKey

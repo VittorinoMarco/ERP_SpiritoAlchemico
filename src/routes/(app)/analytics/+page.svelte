@@ -1,4 +1,7 @@
 <script lang="ts">
+  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
+  import { ymdLocal } from '$lib/utils/format';
   import { onMount } from 'svelte';
   import { pb } from '$lib/pocketbase';
   import Card from '$lib/components/ui/Card.svelte';
@@ -34,8 +37,8 @@
   const defaultTo = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
   onMount(async () => {
-    if (!dateFrom) dateFrom = defaultFrom.toISOString().split('T')[0];
-    if (!dateTo) dateTo = defaultTo.toISOString().split('T')[0];
+    if (!dateFrom) dateFrom = ymdLocal(defaultFrom);
+    if (!dateTo) dateTo = ymdLocal(defaultTo);
     await loadData();
   });
 
@@ -255,7 +258,7 @@
       ]
     },
     options: {
-      plugins: { legend: { position: 'bottom' } },
+      plugins: { legend: { position: 'bottom' as const } },
       scales: {
         x: { grid: { display: false } },
         y: { grid: { color: '#E5E7EB' }, beginAtZero: true }
@@ -282,7 +285,7 @@
       ]
     },
     options: {
-      plugins: { legend: { position: 'bottom' } },
+      plugins: { legend: { position: 'bottom' as const } },
       scales: {
         x: { grid: { display: false } },
         y: { grid: { color: '#E5E7EB' }, beginAtZero: true }
@@ -303,7 +306,7 @@
     },
     options: {
       plugins: {
-        legend: { position: 'bottom' },
+        legend: { position: 'bottom' as const },
         tooltip: {
           callbacks: {
             label: (ctx: any) => {
@@ -439,48 +442,30 @@
   <title>Analytics | ERP Spirito Alchemico</title>
 </svelte:head>
 
-<div class="space-y-6">
-  <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">Analytics</h1>
+<div class="space-y-5 fade-in">
+  <PageHeader titolo="Analytics" sottotitolo="Vendite, canali e agenti nel periodo selezionato." />
 
-  <div class="flex flex-wrap items-center gap-3">
-    <input type="date" bind:value={dateFrom} class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm" />
-    <span class="text-[#9CA3AF]">—</span>
-    <input type="date" bind:value={dateTo} class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm" />
-    <select
-      bind:value={canaleFilter}
-      class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm"
-    >
-      <option value="">Tutti i canali</option>
-      <option value="horeca">HORECA</option>
-      <option value="ecommerce">E-commerce</option>
-      <option value="diretto">Diretto</option>
-    </select>
-    <select
-      bind:value={agenteFilter}
-      class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm"
-    >
-      <option value="">Tutti gli agenti</option>
-      {#each agents as a}
-        <option value={a.id}>{agentName(a)}</option>
-      {/each}
-    </select>
-    <div class="flex-1"></div>
-    <Button variant="ghost" size="sm" className="rounded-2xl">
-      <Plus class="h-4 w-4" />
-      Aggiungi Widget
-    </Button>
-    <Button variant="secondary" size="sm" className="rounded-2xl !bg-[#F5D547] !text-[#1A1A1A]">
-      <FileText class="h-4 w-4" />
-      Crea Report
-    </Button>
-  </div>
+  <Card className="!p-4">
+    <div class="grid grid-cols-2 lg:flex lg:flex-wrap lg:items-center gap-3">
+      <input type="date" bind:value={dateFrom} class="field w-full lg:w-auto" aria-label="Dal" />
+      <input type="date" bind:value={dateTo} class="field w-full lg:w-auto" aria-label="Al" />
+      <select bind:value={canaleFilter} class="field w-full lg:w-auto">
+        <option value="">Tutti i canali</option>
+        <option value="horeca">HORECA</option>
+        <option value="ecommerce">E-commerce</option>
+        <option value="diretto">Diretto</option>
+      </select>
+      <select bind:value={agenteFilter} class="field w-full lg:w-auto">
+        <option value="">Tutti gli agenti</option>
+        {#each agents as a}
+          <option value={a.id}>{agentName(a)}</option>
+        {/each}
+      </select>
+    </div>
+  </Card>
 
   {#if loading}
-    <Card>
-      <div class="py-16 text-center">
-        <p class="text-sm text-[#6B7280]">Caricamento...</p>
-      </div>
-    </Card>
+    <Spinner />
   {:else}
     <div class="analytics-bento">
       <!-- 1. AI Assistant -->
@@ -509,7 +494,7 @@
                 type="text"
                 bind:value={aiQuery}
                 placeholder="Es: Analizza vendite per canale ultimo trimestre"
-                class="flex-1 rounded-2xl border border-black/5 bg-white px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#F5D547]"
+                class="field flex-1"
                 onkeydown={(e) => e.key === 'Enter' && askAi()}
               />
               <Button variant="primary" size="sm" onclick={askAi} disabled={aiLoading || !aiQuery.trim()}>

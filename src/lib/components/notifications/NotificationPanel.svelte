@@ -1,27 +1,22 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { notificationsStore, type Notification, type NotificationTipo } from '$lib/stores/notifications';
-  import { AlertTriangle, FileWarning, Clock, CheckCheck } from 'lucide-svelte';
+  import { AlertTriangle, FileWarning, Clock, CheckCheck, BellOff } from 'lucide-svelte';
 
   export let open = false;
   export let onclose: () => void = () => {};
 
-  let items: Notification[] = [];
-  const unsubItems = notificationsStore.subscribe((v) => (items = v));
-  onDestroy(unsubItems);
+  const readIds = notificationsStore.readIds;
 
   function formatRelative(dateStr: string): string {
     const d = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
+    const diffMin = Math.floor((Date.now() - d.getTime()) / 60000);
     const diffH = Math.floor(diffMin / 60);
     const diffD = Math.floor(diffH / 24);
     if (diffMin < 1) return 'ora';
     if (diffMin < 60) return `${diffMin} min fa`;
-    if (diffH < 24) return `${diffH} ora fa`;
-    if (diffD < 7) return `${diffD} giorni fa`;
+    if (diffH < 24) return `${diffH} ${diffH === 1 ? 'ora' : 'ore'} fa`;
+    if (diffD < 7) return `${diffD} ${diffD === 1 ? 'giorno' : 'giorni'} fa`;
     return d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
   }
 
@@ -31,64 +26,65 @@
     return Clock;
   }
 
-  function iconColor(tipo: NotificationTipo): string {
-    if (tipo === 'sotto_scorta') return 'text-amber-500';
-    if (tipo === 'fattura_scaduta') return 'text-red-500';
-    return 'text-yellow-600';
+  function tone(tipo: NotificationTipo): string {
+    if (tipo === 'sotto_scorta') return 'bg-orange-100 text-orange-600';
+    if (tipo === 'fattura_scaduta') return 'bg-rose-100 text-rose-600';
+    return 'bg-[#FFF3CD] text-yellow-700';
   }
 
-  function markReadAndGo(id: string, link: string) {
-    notificationsStore.setRead(id);
+  function markReadAndGo(item: Notification) {
+    notificationsStore.setRead(item.id);
     onclose();
-    goto(link);
-  }
-
-  function markAllRead() {
-    notificationsStore.setAllRead();
+    goto(item.link);
   }
 </script>
 
+<svelte:window onkeydown={(e) => open && e.key === 'Escape' && onclose()} />
+
 {#if open}
+  <div class="fixed inset-0 z-[55]" role="presentation" onclick={onclose}></div>
   <div
-    class="fixed inset-0 z-40"
-    role="presentation"
-    onclick={onclose}
-    onkeydown={(e) => e.key === 'Escape' && onclose()}
-    tabindex="-1"
-  ></div>
-  <div
-    class="absolute right-0 top-full mt-2 z-50 w-96 max-h-[28rem] flex flex-col rounded-3xl shadow-xl bg-white border border-black/5 overflow-hidden"
+    class="fade-in fixed inset-x-3 top-[calc(var(--topbar-h)+0.25rem)] z-[56] sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[26rem] max-h-[70dvh] flex flex-col rounded-[28px] bg-white shadow-[0_24px_64px_-16px_rgba(0,0,0,0.3)] border border-black/5 overflow-hidden"
     role="dialog"
     aria-label="Notifiche"
   >
-    <div class="flex items-center justify-between px-4 py-3 border-b border-black/5">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-black/5">
       <h3 class="text-sm font-semibold text-[#1A1A1A]">Notifiche</h3>
       <button
         type="button"
-        class="text-xs font-medium text-[#6B7280] hover:text-[#1A1A1A] transition-colors"
-        onclick={markAllRead}
+        class="inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1A1A] transition-colors min-h-[32px]"
+        onclick={() => notificationsStore.setAllRead()}
       >
-        <CheckCheck class="h-4 w-4 inline mr-1" />
+        <CheckCheck class="h-4 w-4" />
         Segna tutte lette
       </button>
     </div>
-    <div class="flex-1 overflow-y-auto max-h-80">
-      {#if items.length === 0}
-        <p class="px-4 py-8 text-sm text-[#6B7280] text-center">Nessuna notifica</p>
+    <div class="flex-1 overflow-y-auto overscroll-contain">
+      {#if $notificationsStore.length === 0}
+        <div class="px-4 py-12 text-center">
+          <BellOff class="h-8 w-8 mx-auto text-[#D1D5DB] mb-2" />
+          <p class="text-sm text-[#6B7280]">Nessuna notifica</p>
+        </div>
       {:else}
-        {#each items as item (item.id)}
+        {#each $notificationsStore as item (item.id)}
+          {@const unread = !$readIds.has(item.id)}
           <button
             type="button"
-            class="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-[#FFF8E7] transition-colors border-b border-black/5 last:border-0"
-            onclick={() => markReadAndGo(item.id, item.link)}
+            class="w-full flex items-start gap-3 px-5 py-3.5 text-left hover:bg-[#FFFDE7] transition-colors border-b border-black/5 last:border-0"
+            onclick={() => markReadAndGo(item)}
           >
-            <span class="flex-shrink-0 mt-0.5 {iconColor(item.tipo)}">
-              <svelte:component this={iconFor(item.tipo)} class="h-5 w-5" />
+            <span class="flex-shrink-0 h-9 w-9 rounded-xl flex items-center justify-center {tone(item.tipo)}">
+              <svelte:component this={iconFor(item.tipo)} class="h-4.5 w-4.5" />
             </span>
             <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium text-[#1A1A1A] truncate">{item.titolo}</p>
-              <p class="text-xs text-[#6B7280] mt-0.5">{formatRelative(item.created)}</p>
+              <p class="text-sm text-[#1A1A1A] {unread ? 'font-semibold' : 'font-normal text-[#4B5563]'} line-clamp-2">
+                {item.titolo}
+              </p>
+              <p class="text-xs text-[#9CA3AF] mt-0.5">{formatRelative(item.created)}</p>
             </div>
+            {#if unread}
+              <span class="mt-1.5 h-2 w-2 rounded-full bg-[#F5D547] flex-shrink-0" aria-label="Non letta"></span>
+            {/if}
           </button>
         {/each}
       {/if}
@@ -96,14 +92,14 @@
     <div class="border-t border-black/5 px-4 py-2">
       <a
         href="/attivita"
-        class="block text-center text-sm font-medium text-[#1A1A1A] hover:text-[#F5D547] transition-colors py-2"
+        class="block text-center text-sm font-medium text-[#1A1A1A] hover:underline py-2"
         onclick={(e) => {
           e.preventDefault();
           onclose();
           goto('/attivita');
         }}
       >
-        Vedi tutte
+        Vedi tutta l'attività
       </a>
     </div>
   </div>

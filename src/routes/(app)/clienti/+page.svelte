@@ -1,4 +1,6 @@
 <script lang="ts">
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { pb } from '$lib/pocketbase';
@@ -205,9 +207,9 @@
       .then((list) => {
         const filter = isAgente && user?.id ? `agente = "${user.id}"` : '';
         if (filter) {
-          clients = list.filter((c) => c.agente === user?.id);
+          clients = (list as any[]).filter((c) => c.agente === user?.id);
         } else {
-          clients = list;
+          clients = list as any;
         }
       });
   }
@@ -290,19 +292,24 @@
   }
 </script>
 
-<div class="space-y-6">
-  <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-    <h1 class="text-3xl font-bold text-[#1A1A1A] tracking-tight">Clienti</h1>
-  </div>
+<div class="space-y-5 fade-in">
+  <PageHeader titolo="Clienti" sottotitolo={isAgente ? 'I tuoi clienti.' : 'Anagrafica clienti, agenti assegnati e storico ordini.'}>
+    <Button variant="ghost" size="sm" onclick={exportCsv}>
+      <Download class="h-4 w-4" />
+      <span class="hidden sm:inline">Export CSV</span>
+    </Button>
+    <Button size="sm" onclick={openNewModal}>
+      <Plus class="h-4 w-4" />
+      Nuovo cliente
+    </Button>
+  </PageHeader>
 
   <div class="flex flex-col gap-4">
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="chip-row">
       {#each TIPO_FILTERS as f}
         <button
           type="button"
-          class="rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 {f.value === tipoFilter
-            ? 'bg-[#F5D547] text-[#1A1A1A]'
-            : 'bg-[#E5E7EB] text-[#6B7280] hover:bg-[#D1D5DB]'}"
+          class="chip {f.value === tipoFilter ? 'chip-active' : ''}"
           onclick={() => {
             tipoFilter = f.value as ClientTipo | 'tutti';
             page = 1;
@@ -316,7 +323,7 @@
       {#if isAdmin}
         <select
           bind:value={agenteFilter}
-          class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm text-[#1A1A1A] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547]"
+          class="field w-auto"
         >
           <option value="">Tutti gli agenti</option>
           {#each agents as a}
@@ -326,7 +333,7 @@
       {/if}
       <select
         bind:value={cittaFilter}
-        class="rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm text-[#1A1A1A] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547]"
+        class="field w-auto"
       >
         <option value="">Tutte le città</option>
         {#each cities as city}
@@ -339,13 +346,9 @@
           type="text"
           bind:value={search}
           placeholder="Cerca ragione sociale, email, città..."
-          class="w-full rounded-2xl border border-black/5 bg-white/80 pl-10 pr-4 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#9CA3AF] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5D547] focus-visible:ring-offset-2"
+          class="field w-full"
         />
       </div>
-      <Button variant="ghost" size="sm" className="rounded-2xl" onclick={exportCsv}>
-        <Download class="h-4 w-4" />
-        Export CSV
-      </Button>
       {#if isAdmin && selectedIds.size > 0}
         <Button
           variant="ghost"
@@ -358,23 +361,12 @@
           Elimina ({selectedIds.size})
         </Button>
       {/if}
-      <Button
-        variant="primary"
-        size="sm"
-        className="rounded-2xl !bg-[#1A1A1A]"
-        onclick={openNewModal}
-      >
-        <Plus class="h-4 w-4" />
-        Nuovo Cliente
-      </Button>
     </div>
   </div>
 
   <Card className="overflow-hidden p-0">
     {#if loading}
-      <div class="flex items-center justify-center py-16">
-        <p class="text-sm text-[#6B7280]">Caricamento...</p>
-      </div>
+      <Spinner />
     {:else}
       <div class="hidden md:block overflow-x-auto">
         <table class="w-full">
