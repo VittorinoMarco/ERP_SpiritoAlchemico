@@ -285,4 +285,25 @@ if (!DRY_RUN) {
   }
 }
 
+// 11) orders.con_fattura — le vendite già esistenti restano "con fattura"
+{
+  const col = await pb.collections.getOne('orders');
+  const fields = JSON.parse(JSON.stringify(col.fields || col.schema || []));
+  const exists = fields.some((f) => f.name === 'con_fattura');
+  if (exists) {
+    console.log('OK   orders.con_fattura');
+  } else {
+    fields.push({ name: 'con_fattura', type: 'bool', required: false });
+    log('ADD  orders.con_fattura (bool)');
+    if (!DRY_RUN) {
+      await pb.collections.update(col.id, { fields });
+      const rows = await pb.collection('orders').getFullList({ fields: 'id' });
+      for (const row of rows) {
+        await pb.collection('orders').update(row.id, { con_fattura: true });
+      }
+      console.log(`OK   con_fattura = true su ${rows.length} ordini esistenti`);
+    }
+  }
+}
+
 console.log('\nFatto.');

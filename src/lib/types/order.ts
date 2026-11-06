@@ -16,6 +16,8 @@ export interface Order extends RecordModel {
   iva_percentuale?: number;
   note?: string;
   ddt_numero?: string;
+  /** false = vendita senza fattura: non entra nel fatturato. Assente o true = con fattura. */
+  con_fattura?: boolean;
 }
 
 export interface OrderItem extends RecordModel {
@@ -58,5 +60,12 @@ export const CANALE_BADGE_COLORS: Record<OrderCanale, string> = {
 };
 
 export const STATO_STEPS: OrderStato[] = ['bozza', 'confermato', 'spedito', 'consegnato'];
+
+export const STATO_HINTS: Partial<Record<OrderStato, string>> = {
+  bozza: 'Proposta',
+  confermato: 'Scarica il magazzino',
+  spedito: 'Solo transito',
+  consegnato: 'Chiude la vendita'
+};
 // completato è equivalente a consegnato (usato da PocketBase)
 export const STATO_CONSEGNATO_VALUES = ['consegnato', 'completato'] as const;

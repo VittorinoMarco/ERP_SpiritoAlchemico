@@ -1,0 +1,15 @@
+[Unit]
+Description=Spirito Alchemico MCP (Claude e ChatGPT)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/erp-mcp
+EnvironmentFile=/opt/erp-mcp/.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

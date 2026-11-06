@@ -7,7 +7,8 @@ import { ymdLocal } from '$lib/utils/format';
  *
  *   importo = arrotonda_2( imponibile × percentuale / 100 )
  *
- * Trigger: fattura (non proforma) → `pagata`.
+ * Trigger con fattura: fattura (non proforma) → `pagata`.
+ * Trigger senza fattura (`orders.con_fattura = false`): ordine → `consegnato`.
  *
  * Piramide (decisione soci 2026-09-29): la quota del collaboratore sotto
  * è CONTENUTA nella % dell'agente padre, non aggiuntiva.
@@ -110,17 +111,11 @@ export type CommissionEnsureResult = {
   agenteId: string;
 };
 
-/** Chiamata quando una FATTURA (non proforma) passa a pagata. */
-export async function ensureCommissionOnInvoicePaid(
-  pb: PocketBase,
-  invoice: { stato?: string; ordine?: string; tipo?: string | null }
-): Promise<CommissionEnsureResult[] | null> {
-  if (invoice.stato !== 'pagata' || !invoice.ordine) return null;
-  if (invoice.tipo === 'proforma') return null;
-  const order = await pb.collection('orders').getOne(invoice.ordine);
-  const takerId = agenteIdFromOrder(order as { agente?: unknown });
+type SaleOrder = OrderMoney & { id: string; agente?: unknown; con_fattura?: boolean | null; stato?: string };
+
+async function ensureCommissionForSale(pb: PocketBase, order: SaleOrder): Promise<CommissionEnsureResult[] | null> {
+  const takerId = agenteIdFromOrder(order);
   if (!takerId) return null;
-  const money = order as OrderMoney;
   const taker = await pb.collection('users').getOne(takerId);
   const padreId = relationId((taker as { agente_padre?: unknown }).agente_padre);
   const out: CommissionEnsureResult[] = [];
@@ -131,15 +126,15 @@ export async function ensureCommissionOnInvoicePaid(
     const childPct = Number((taker as { provvigione_percentuale?: number }).provvigione_percentuale) || 0;
     const split = splitPyramid(parentPct, childPct);
     const child = await ensureCommissionForOrder(pb, {
-      orderId: invoice.ordine,
+      orderId: order.id,
       agenteId: takerId,
-      order: money,
+      order,
       percentuale: split.child
     });
     const parent = await ensureCommissionForOrder(pb, {
-      orderId: invoice.ordine,
+      orderId: order.id,
       agenteId: padreId,
-      order: money,
+      order,
       percentuale: split.parent
     });
     if (child) out.push({ ...child, agenteId: takerId });
@@ -148,9 +143,34 @@ export async function ensureCommissionOnInvoicePaid(
   }
 
   const one = await ensureCommissionForOrder(pb, {
-    orderId: invoice.ordine,
+    orderId: order.id,
     agenteId: takerId,
-    order: money
+    order
   });
   return one ? [{ ...one, agenteId: takerId }] : null;
+}
+
+/** Chiamata quando una FATTURA (non proforma) passa a pagata. Le vendite senza fattura non passano di qui. */
+export async function ensureCommissionOnInvoicePaid(
+  pb: PocketBase,
+  invoice: { stato?: string; ordine?: string; tipo?: string | null }
+): Promise<CommissionEnsureResult[] | null> {
+  if (invoice.stato !== 'pagata' || !invoice.ordine) return null;
+  if (invoice.tipo === 'proforma') return null;
+  const order = (await pb.collection('orders').getOne(invoice.ordine)) as SaleOrder;
+  if (order.con_fattura === false) return null;
+  return ensureCommissionForSale(pb, order);
+}
+
+/** Vendita senza fattura: la provvigione matura alla consegna, con la stessa formula della fattura pagata. */
+export async function ensureCommissionOnDelivered(
+  pb: PocketBase,
+  order: { id: string; stato?: string; con_fattura?: boolean | null }
+): Promise<CommissionEnsureResult[] | null> {
+  if (order.con_fattura !== false) return null;
+  const stato = order.stato === 'completato' ? 'consegnato' : order.stato;
+  if (stato !== 'consegnato') return null;
+  const fresh = (await pb.collection('orders').getOne(order.id)) as SaleOrder;
+  if (fresh.con_fattura !== false) return null;
+  return ensureCommissionForSale(pb, fresh);
 }

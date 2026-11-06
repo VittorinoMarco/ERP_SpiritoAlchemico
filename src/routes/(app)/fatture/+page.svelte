@@ -16,6 +16,7 @@
   } from 'lucide-svelte';
   import type { Invoice, InvoiceStato } from '$lib/types/invoice';
   import { STATO_LABELS, STATO_BADGE_COLORS } from '$lib/types/invoice';
+  import { isFatturaContabile, sumTotale } from '$lib/utils/revenue';
 
   const STATO_FILTERS: { value: InvoiceStato | 'scaduta' | 'tutti'; label: string }[] = [
     { value: 'tutti', label: 'Tutte' },
@@ -63,18 +64,15 @@
     return matchStato && matchCliente && matchDate;
   });
 
-  $: totaleEmesso = invoices.reduce((s, i) => s + (i.totale ?? 0), 0);
-  $: totaleIncassato = invoices
-    .filter((i) => i.stato === 'pagata')
-    .reduce((s, i) => s + (i.totale ?? 0), 0);
-  $: totaleScaduto = invoices
-    .filter((i) => isScaduta(i))
-    .reduce((s, i) => s + (i.totale ?? 0), 0);
+  $: fattureReali = invoices.filter((i) => isFatturaContabile(i));
+  $: totaleEmesso = sumTotale(fattureReali);
+  $: totaleIncassato = sumTotale(fattureReali.filter((i) => i.stato === 'pagata'));
+  $: totaleScaduto = sumTotale(fattureReali.filter((i) => isScaduta(i)));
 
   $: agingData = (() => {
     const buckets = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
     const now = new Date();
-    for (const inv of invoices.filter((i) => i.stato !== 'pagata' && i.data_scadenza)) {
+    for (const inv of fattureReali.filter((i) => i.stato !== 'pagata' && i.data_scadenza)) {
       const scad = new Date(inv.data_scadenza);
       const days = Math.floor((now.getTime() - scad.getTime()) / (24 * 60 * 60 * 1000));
       if (days > 0) {
@@ -182,7 +180,7 @@
     <!-- Dashboard KPI -->
     <section class="page-grid">
       <div class="rounded-3xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-5 lg:p-6">
-        <p class="text-xs font-medium uppercase tracking-wide text-[#6B7280]">Totale Emesso</p>
+        <p class="text-xs font-medium uppercase tracking-wide text-[#6B7280]">Fatturato emesso</p>
         <p class="mt-2 text-3xl lg:text-4xl font-bold text-[#F5D547]">{formatEuro(totaleEmesso)}</p>
       </div>
       <div class="rounded-3xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-5 lg:p-6">

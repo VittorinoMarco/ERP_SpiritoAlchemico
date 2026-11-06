@@ -8,6 +8,7 @@
   import { formatEuro, dayOf, ymdLocal } from '$lib/utils/format';
   import { isSottoScortaGiacenza } from '$lib/constants/inventory';
   import { STATO_LABELS, STATO_BADGE_COLORS, type OrderStato } from '$lib/types/order';
+  import { isFatturaContabile, isNonFatturato, sumTotale } from '$lib/utils/revenue';
   import PageHeader from '$lib/components/layout/PageHeader.svelte';
   import KpiCard from '$lib/components/layout/KpiCard.svelte';
   import Card from '$lib/components/ui/Card.svelte';
@@ -52,12 +53,10 @@
   $: daEvadere = orders.filter((o) => o.stato === 'confermato');
   $: bozze = orders.filter((o) => o.stato === 'bozza');
 
-  $: fatturatoMese = invoices
-    .filter((i) => inMonth(dayOf(i.data_emissione), thisMonth))
-    .reduce((s, i) => s + (Number(i.totale) || 0), 0);
-  $: fatturatoPrec = invoices
-    .filter((i) => inMonth(dayOf(i.data_emissione), prevMonth))
-    .reduce((s, i) => s + (Number(i.totale) || 0), 0);
+  $: fattureReali = invoices.filter((i) => isFatturaContabile(i));
+  $: fatturatoMese = sumTotale(fattureReali.filter((i) => inMonth(dayOf(i.data_emissione), thisMonth)));
+  $: fatturatoPrec = sumTotale(fattureReali.filter((i) => inMonth(dayOf(i.data_emissione), prevMonth)));
+  $: nonFatturatoMese = sumTotale(orders.filter((o) => isNonFatturato(o) && inMonth(dayOf(o.data_ordine), thisMonth)));
   $: trendPct = fatturatoPrec > 0 ? Math.round(((fatturatoMese - fatturatoPrec) / fatturatoPrec) * 1000) / 10 : null;
   $: trend =
     trendPct === null
@@ -68,8 +67,8 @@
           ? { t: 'down' as const, label: `${trendPct}% vs mese scorso` }
           : { t: 'flat' as const, label: 'In linea col mese scorso' };
 
-  $: fattureScadute = invoices.filter((i) => i.stato !== 'pagata' && dayOf(i.data_scadenza) && dayOf(i.data_scadenza)! < ymdLocal(now));
-  $: daIncassare = invoices.filter((i) => i.stato !== 'pagata').reduce((s, i) => s + (Number(i.totale) || 0), 0);
+  $: fattureScadute = fattureReali.filter((i) => i.stato !== 'pagata' && dayOf(i.data_scadenza) && dayOf(i.data_scadenza)! < ymdLocal(now));
+  $: daIncassare = sumTotale(fattureReali.filter((i) => i.stato !== 'pagata'));
 
   $: sottoScorta = inventory.filter((i) => isSottoScortaGiacenza(i.giacenza));
   $: unitaTotali = inventory.reduce((s, i) => s + (Number(i.giacenza) || 0), 0);
@@ -102,7 +101,7 @@
           label: isAdmin ? 'Fatturato' : 'Ordini',
           data: dayLabels.map((d) => {
             const key = ymdLocal(d);
-            const src = isAdmin ? invoices : activeOrders;
+            const src = isAdmin ? fattureReali : activeOrders;
             return round2(
               src
                 .filter((r) => dayOf(isAdmin ? r.data_emissione : r.data_ordine) === key)
@@ -128,7 +127,7 @@
         {
           label: isAdmin ? 'Fatturato' : 'Ordini',
           data: months6.map((m) => {
-            const src = isAdmin ? invoices : activeOrders;
+            const src = isAdmin ? fattureReali : activeOrders;
             return round2(
               src
                 .filter((r) => inMonth(dayOf(isAdmin ? r.data_emissione : r.data_ordine), m))
@@ -165,9 +164,11 @@
   })();
 
   $: donutValues = isAgente
-    ? (['bozza', 'confermato', 'spedito', 'consegnato', 'completato'] as const).map((s) => statoCount[s] ?? 0)
+    ? (['bozza', 'confermato', 'spedito', 'consegnato'] as const).map((s) =>
+        s === 'consegnato' ? (statoCount.consegnato ?? 0) + (statoCount.completato ?? 0) : (statoCount[s] ?? 0)
+      )
     : [canaleCount.horeca, canaleCount.ecommerce, canaleCount.diretto];
-  $: donutLabels = isAgente ? ['Bozza', 'Confermato', 'Spedito', 'Consegnato', 'Completato'] : ['HORECA', 'E-commerce', 'Diretto'];
+  $: donutLabels = isAgente ? ['Bozza', 'Confermato', 'Spedito', 'Consegnato'] : ['HORECA', 'E-commerce', 'Diretto'];
   $: donutEmpty = donutValues.reduce((a, b) => a + b, 0) === 0;
   $: donutConfig = {
     data: {
@@ -264,11 +265,12 @@
     <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 sm:gap-4">
       {#if isAdmin}
         <KpiCard tone="yellow" label="Fatturato del mese" valore={formatEuro(fatturatoMese, 0)} trend={trend.t} trendLabel={trend.label} icon={Receipt} />
-        <KpiCard label="Ordini del mese" valore={String(ordersThisMonth.length)} trend="flat" trendLabel={formatEuro(ordersThisMonthTotal, 0) + ' di ordinato'} icon={ShoppingCart} />
+        <KpiCard label="Non fatturato" valore={formatEuro(nonFatturatoMese, 0)} trend="flat" trendLabel="Senza fattura, questo mese" icon={ShoppingCart} />
         <KpiCard tone="orange" label="Ordini da evadere" valore={String(daEvadere.length)} trend="flat" trendLabel={daEvadere.length ? 'Confermati, non spediti' : 'Nessuno in coda'} icon={PackageCheck} />
         <KpiCard tone="dark" label="Prodotti sotto scorta" valore={String(sottoScorta.length)} trend="flat" trendLabel={sottoScorta.length ? 'Giacenza ≤ 6' : 'Magazzino ok'} icon={AlertTriangle} />
       {:else if isAgente}
         <KpiCard tone="yellow" label="Ordinato del mese" valore={formatEuro(ordersThisMonthTotal, 0)} trend="flat" trendLabel={`${ordersThisMonth.length} ordini · IVA incl.`} icon={ShoppingCart} />
+        <KpiCard label="Non fatturato" valore={formatEuro(nonFatturatoMese, 0)} trend="flat" trendLabel="Senza fattura, questo mese" icon={Receipt} />
         <KpiCard label="Ordini in bozza" valore={String(bozze.length)} trend="flat" trendLabel={bozze.length ? 'Da completare' : 'Tutto confermato'} icon={ClipboardList} />
         <KpiCard tone="orange" label="Provvigioni maturate" valore={formatEuro(provvigioniMaturate, 0)} trend="flat" trendLabel="Da liquidare" icon={Wallet} />
         <KpiCard tone="dark" label="I miei clienti" valore={String(clientiTotali)} trend="flat" trendLabel="In portafoglio" icon={Users} />

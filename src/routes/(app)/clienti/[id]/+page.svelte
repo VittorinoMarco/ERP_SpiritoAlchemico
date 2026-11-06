@@ -13,12 +13,14 @@
   import ClientModal from '$lib/components/clients/ClientModal.svelte';
   import type { Client, ClientTipo } from '$lib/types/client';
   import { TIPO_LABELS, TIPO_BADGE_COLORS } from '$lib/types/client';
+  import { isFatturaContabile, isNonFatturato, sumTotale } from '$lib/utils/revenue';
   import { ArrowLeft, Edit, MapPin, Receipt, FileText, Trash2, Plus } from 'lucide-svelte';
 
   const clientId = $page.params.id;
 
   let client: (Client & { expand?: { agente?: { id: string; name?: string; email?: string; nome?: string; cognome?: string } } }) | null = null;
-  let orders: { id: string; numero_ordine?: string; data_ordine?: string; stato?: string; totale?: number }[] = [];
+  let orders: { id: string; numero_ordine?: string; data_ordine?: string; stato?: string; totale?: number; con_fattura?: boolean }[] = [];
+  let invoices: { tipo?: string; stato?: string; totale?: number }[] = [];
   let agents: { id: string; name?: string; email?: string }[] = [];
   let loading = true;
   let modalOpen = false;
@@ -28,9 +30,10 @@
   $: isAdmin = (user?.role || (user as any)?.ruolo) === 'admin';
   // Bozze e annullati non sono fatturato
   $: validOrders = orders.filter((o) => o.stato !== 'annullato' && o.stato !== 'bozza');
-  $: totaleFatturato = validOrders.reduce((s, o) => s + (Number(o.totale) || 0), 0);
+  $: totaleFatturato = sumTotale(invoices.filter((i) => isFatturaContabile(i)));
+  $: totaleNonFatturato = sumTotale(orders.filter((o) => isNonFatturato(o)));
   $: ordiniTotali = validOrders.length;
-  $: mediaOrdine = ordiniTotali > 0 ? totaleFatturato / ordiniTotali : 0;
+  $: mediaOrdine = ordiniTotali > 0 ? validOrders.reduce((s, o) => s + (Number(o.totale) || 0), 0) / ordiniTotali : 0;
 
   onMount(async () => {
     try {
@@ -41,6 +44,11 @@
         sort: '-data_ordine'
       });
       orders = ordersList;
+      try {
+        invoices = await pb.collection('invoices').getFullList({ filter: `cliente = "${clientId}"` });
+      } catch {
+        invoices = [];
+      }
 
       if (isAdmin) {
         const usersList = await pb.collection('users').getFullList({ filter: 'ruolo = "agente"' });
@@ -53,6 +61,7 @@
     } catch {
       client = null;
       orders = [];
+      invoices = [];
     } finally {
       loading = false;
     }
@@ -253,9 +262,14 @@
       <!-- Card KPI -->
       <div class="space-y-4">
         <KpiCard
-          label="Totale fatturato"
+          label="Fatturato"
           valore={formatEuro(totaleFatturato)}
           icon={Receipt}
+        />
+        <KpiCard
+          label="Non fatturato"
+          valore={formatEuro(totaleNonFatturato)}
+          icon={FileText}
         />
         <KpiCard
           label="Ordini totali"

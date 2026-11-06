@@ -47,6 +47,7 @@
 
   let lineItems: LineItem[] = [];
   let canale: OrderCanale = 'horeca';
+  let conFattura = true;
   let agenteId = '';
   let agenteTouched = false;
   let note = '';
@@ -262,7 +263,8 @@
           totale_imponibile: totaleImponibile,
           iva,
           iva_percentuale: ivaPercentuale,
-          note: note.trim() || undefined
+          note: note.trim() || undefined,
+          con_fattura: conFattura
         },
         lineItems.map((l) => ({
           prodotto: l.prodotto,
@@ -516,6 +518,30 @@
       <Card>
         <h2 class="text-sm font-semibold mb-3">3 · Dettagli</h2>
         <div class="grid gap-3 sm:grid-cols-2">
+          <div class="sm:col-span-2">
+            <span class="block text-xs text-[#6B7280] mb-1">Documento</span>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                class="min-h-11 rounded-2xl text-sm font-medium {conFattura ? 'bg-[#1A1A1A] text-white' : 'bg-white border border-black/10'}"
+                onclick={() => (conFattura = true)}
+              >
+                Con fattura
+              </button>
+              <button
+                type="button"
+                class="min-h-11 rounded-2xl text-sm font-medium {!conFattura ? 'bg-[#1A1A1A] text-white' : 'bg-white border border-black/10'}"
+                onclick={() => (conFattura = false)}
+              >
+                Senza fattura
+              </button>
+            </div>
+            <p class="text-xs text-[#6B7280] mt-1.5">
+              {conFattura
+                ? 'Poi proforma e fattura. La provvigione matura quando la fattura è pagata.'
+                : 'Nessuna fattura. La provvigione matura alla consegna e la vendita resta nel non fatturato.'}
+            </p>
+          </div>
           <label class="block">
             <span class="block text-xs text-[#6B7280] mb-1">Canale (listino prezzi)</span>
             <select class="field w-full" bind:value={canale} onchange={onCanaleChange}>

@@ -49,7 +49,7 @@
     role="presentation"
   >
     <div
-      class="sheet-up w-full max-h-[88dvh] flex flex-col rounded-t-[32px] bg-[#F7F6F3] shadow-2xl"
+      class="glass-panel sheet-up w-full max-h-[88dvh] flex flex-col !rounded-t-[32px] !rounded-b-none shadow-2xl"
       role="dialog"
       aria-modal="true"
       aria-label="Menu"

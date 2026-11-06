@@ -16,7 +16,7 @@
 </script>
 
 <nav
-  class="lg:hidden fixed inset-x-3 z-40 bottom-[max(0.75rem,env(safe-area-inset-bottom))] h-[var(--bottomnav-h)] rounded-[30px] bg-[#1F1F1F]/95 backdrop-blur-xl text-white shadow-[0_18px_40px_-12px_rgba(0,0,0,0.55)] px-2 flex items-stretch justify-between gap-1"
+  class="glass-panel lg:hidden fixed inset-x-3 z-40 bottom-[max(0.75rem,env(safe-area-inset-bottom))] h-[var(--bottomnav-h)] !rounded-[30px] text-[#1A1A1A] px-1.5 flex items-stretch justify-between gap-0.5"
   aria-label="Navigazione principale"
 >
   {#each primary as item (item?.id)}
@@ -27,12 +27,12 @@
         aria-current={isActive ? 'page' : undefined}
         class="flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 rounded-3xl my-1.5 transition-colors {isActive
           ? 'bg-[#F5D547] text-[#1A1A1A]'
-          : 'text-white/60 active:bg-white/10'}"
+          : 'text-[#1A1A1A]/70 active:bg-white/70'}"
       >
         <span class="relative">
           <svelte:component this={item.icon} class="h-[21px] w-[21px]" />
           {#if item.id === 'magazzino' && $sottoScortaCount > 0}
-            <span class="absolute -top-1 -right-1.5 h-2.5 w-2.5 rounded-full bg-[#FF5C5C] ring-2 ring-[#1F1F1F]"></span>
+            <span class="absolute -top-1 -right-1.5 h-2.5 w-2.5 rounded-full bg-[#FF5C5C] ring-2 ring-white"></span>
           {/if}
         </span>
         <span class="text-[10px] font-semibold leading-none truncate max-w-full px-1">{item.short ?? item.label}</span>
@@ -44,7 +44,7 @@
     type="button"
     class="flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 rounded-3xl my-1.5 transition-colors {menuActive
       ? 'bg-[#F5D547] text-[#1A1A1A]'
-      : 'text-white/60 active:bg-white/10'}"
+      : 'text-[#1A1A1A]/70 active:bg-white/70'}"
     onclick={() => mobileMenuOpen.set(true)}
     aria-label="Apri menu completo"
   >

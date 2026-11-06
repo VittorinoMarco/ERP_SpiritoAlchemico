@@ -13,7 +13,7 @@
 
   const variants: Record<Variant, string> = {
     default:
-      'bg-white/90 border border-white text-[#1A1A1A] shadow-[0_1px_2px_rgba(16,16,16,0.04),0_12px_32px_-16px_rgba(16,16,16,0.12)]',
+      'bg-white/60 border border-white/80 text-[#1A1A1A] shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_18px_40px_-24px_rgba(16,16,16,0.32)] backdrop-blur-xl',
     accent: 'bg-[#FFF3CD] border border-[#F5D547]/30 text-[#1A1A1A]',
     yellow: 'bg-[#F5D547] text-[#1A1A1A] shadow-[0_12px_32px_-16px_rgba(245,213,71,0.7)]',
     orange: 'bg-[#FF9F43] text-[#1A1A1A] shadow-[0_12px_32px_-16px_rgba(255,159,67,0.7)]',

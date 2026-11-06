@@ -13,6 +13,7 @@
   import { settingsStore } from '$lib/stores/settings';
   import { getAnalyticsInsight, buildDataSummary } from '$lib/utils/analyticsAi';
   import { TIPO_LABELS } from '$lib/types/client';
+  import { isFatturaContabile, isNonFatturato, sumTotale } from '$lib/utils/revenue';
 
   type ChartView = 'bar' | 'line' | 'area';
 
@@ -23,6 +24,7 @@
   let agenteFilter = '';
   let agents: { id: string; nome?: string; cognome?: string; email?: string }[] = [];
   let orders: any[] = [];
+  let invoices: any[] = [];
   let orderItems: any[] = [];
   let clients: any[] = [];
   let products: any[] = [];
@@ -45,20 +47,23 @@
   async function loadData() {
     loading = true;
     try {
-      const [ordersList, itemsList, clientsList, productsList, agentsList] = await Promise.all([
+      const [ordersList, itemsList, clientsList, productsList, agentsList, invoicesList] = await Promise.all([
         pb.collection('orders').getFullList({ expand: 'cliente,agente', sort: 'data_ordine' }),
         pb.collection('order_items').getFullList({ expand: 'prodotto' }),
         pb.collection('clients').getFullList(),
         pb.collection('products').getFullList(),
-        pb.collection('users').getFullList({ filter: 'ruolo = "agente"' })
+        pb.collection('users').getFullList({ filter: 'ruolo = "agente"' }),
+        pb.collection('invoices').getFullList({ expand: 'ordine' })
       ]);
       orders = ordersList;
+      invoices = invoicesList;
       orderItems = itemsList;
       clients = clientsList;
       products = productsList;
       agents = agentsList;
     } catch {
       orders = [];
+      invoices = [];
       orderItems = [];
       clients = [];
       products = [];
@@ -88,6 +93,18 @@
   });
 
   $: totaleVendite = filteredOrders.reduce((s, o) => s + (Number(o.totale) || 0), 0);
+  $: nonFatturato = sumTotale(filteredOrders.filter((o) => isNonFatturato(o)));
+  $: fatturato = sumTotale(
+    invoices.filter((inv) => {
+      if (!isFatturaContabile(inv)) return false;
+      const d = String(inv.data_emissione ?? '');
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo + 'T23:59:59') return false;
+      const agenteId = inv.expand?.ordine?.agente;
+      if (agenteFilter && agenteId !== agenteFilter) return false;
+      return true;
+    })
+  );
 
   $: venditePerMese = (() => {
     const byMonth: Record<string, number> = {};
@@ -532,7 +549,10 @@
             <Download class="h-4 w-4" />
           </button>
         </div>
-        <p class="text-4xl font-bold text-[#1A1A1A] mb-4">{formatEuro(totaleVendite)}</p>
+        <p class="text-4xl font-bold text-[#1A1A1A]">{formatEuro(totaleVendite)}</p>
+        <p class="mt-2 mb-4 text-sm text-[#6B7280]">
+          Fatturato {formatEuro(fatturato)} · Non fatturato {formatEuro(nonFatturato)}
+        </p>
         <div class="h-40">
           <BarChart config={venditeTotaliBarConfig} />
         </div>
@@ -541,7 +561,7 @@
       <!-- 3. Confronto Fatturato -->
       <Card className="lg:col-span-2">
         <div class="flex items-center justify-between mb-2">
-          <h2 class="text-sm font-medium text-[#1A1A1A]">Confronto Fatturato</h2>
+          <h2 class="text-sm font-medium text-[#1A1A1A]">Confronto ordinato</h2>
           <div class="flex items-center gap-1">
             <button
               type="button"

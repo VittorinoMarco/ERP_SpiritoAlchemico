@@ -12,6 +12,7 @@
   import { Users, ShoppingCart, Euro, Percent, ChevronRight, UserPlus } from 'lucide-svelte';
   import type { AgentCommission, CommissionStato } from '$lib/types/agent';
   import { COMMISSION_STATO_LABELS, COMMISSION_STATO_BADGE } from '$lib/types/agent';
+  import { isFatturaContabile, isNonFatturato } from '$lib/utils/revenue';
 
   type TabId = 'agenti' | 'provvigioni';
   let activeTab: TabId = 'agenti';
@@ -26,6 +27,7 @@
     nClienti: number;
     ordiniMese: number;
     fatturatoMese: number;
+    nonFatturatoMese: number;
     provvigioniMaturate: number;
   };
 
@@ -169,6 +171,7 @@
           nClienti: 0,
           ordiniMese: 0,
           fatturatoMese: 0,
+          nonFatturatoMese: 0,
           provvigioniMaturate: 0
         });
       }
@@ -181,19 +184,24 @@
       }
 
       for (const o of ordersList as any[]) {
-        if (o.agente && agentsMap.has(o.agente) && (o.stato === 'consegnato' || o.stato === 'completato')) {
-          const a = agentsMap.get(o.agente)!;
-          const d = o.data_ordine ?? '';
-          if (d >= meseStart && d <= meseEnd) {
-            a.ordiniMese += 1;
-          }
-        }
+        if (!o.agente || !agentsMap.has(o.agente)) continue;
+        const a = agentsMap.get(o.agente)!;
+        const d = o.data_ordine ?? '';
+        const nelMese = d >= meseStart && d <= meseEnd;
+        if (nelMese && (o.stato === 'consegnato' || o.stato === 'completato')) a.ordiniMese += 1;
+        if (nelMese && isNonFatturato(o)) a.nonFatturatoMese += Number(o.totale) || 0;
       }
 
       for (const inv of invoicesList as any[]) {
         const ord = (inv as any).expand?.ordine;
         const agenteId = ord?.agente;
-        if (agenteId && agentsMap.has(agenteId) && inv.data_emissione >= meseStart && inv.data_emissione <= meseEnd) {
+        if (
+          agenteId &&
+          agentsMap.has(agenteId) &&
+          isFatturaContabile(inv) &&
+          inv.data_emissione >= meseStart &&
+          inv.data_emissione <= meseEnd
+        ) {
           const a = agentsMap.get(agenteId)!;
           a.fatturatoMese += Number(inv.totale) || 0;
         }
@@ -311,6 +319,7 @@
               <div>
                 <p class="text-xs text-[#6B7280]">Fatturato mese</p>
                 <p class="text-sm font-bold text-[#1A1A1A]">{formatEuro(agent.fatturatoMese)}</p>
+                <p class="text-[11px] text-[#6B7280]">Non fatt. {formatEuro(agent.nonFatturatoMese)}</p>
               </div>
             </div>
             <div class="flex items-center gap-2">

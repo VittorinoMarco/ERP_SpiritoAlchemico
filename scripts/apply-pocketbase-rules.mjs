@@ -62,7 +62,8 @@ const ORDER_FROZEN_OK =
   '(stato = "bozza" || (@request.body.numero_ordine:isset = false && @request.body.cliente:isset = false && ' +
   '@request.body.agente:isset = false && @request.body.canale:isset = false && @request.body.totale:isset = false && ' +
   '@request.body.totale_imponibile:isset = false && @request.body.iva:isset = false && ' +
-  '@request.body.iva_percentuale:isset = false && @request.body.data_ordine:isset = false))';
+  '@request.body.iva_percentuale:isset = false && @request.body.data_ordine:isset = false && ' +
+  '@request.body.con_fattura:isset = false))';
 
 /** Solo i campi elencati vengono modificati. */
 const RULES = {

@@ -14,6 +14,7 @@
     STATO_LABELS,
     STATO_BADGE_COLORS,
     STATO_STEPS,
+    STATO_HINTS,
     CANALE_LABELS,
     CANALE_BADGE_COLORS
   } from '$lib/types/order';
@@ -192,6 +193,17 @@
       }
       await loadOrder();
       await logActivity('stato_cambiato', `Da ${oldStato} a ${newStato}`);
+      if (order && order.con_fattura === false && (order.stato === 'consegnato' || order.stato === 'completato')) {
+        try {
+          const { ensureCommissionOnDelivered } = await import('$lib/utils/commissions');
+          const matured = await ensureCommissionOnDelivered(pb, order);
+          if (matured?.some((row) => row.created)) {
+            flash('Provvigione maturata alla consegna. Questa vendita non entra nel fatturato.', 'ok');
+          }
+        } catch (e: any) {
+          flash(`Ordine consegnato, ma la provvigione non è stata registrata: ${e?.message ?? 'errore'}`);
+        }
+      }
     } catch (e: any) {
       if (scaricoFatto) {
         await ripristinaGiacenzaDaOrdine(pb, orderId, {
@@ -308,8 +320,26 @@
     return nextDocumentNumber(pb, kind);
   }
 
+  async function setConFattura(value: boolean) {
+    if (!order || busy || !isAdmin || order.stato !== 'bozza' || order.con_fattura === value) return;
+    busy = true;
+    notice = '';
+    try {
+      await pb.collection('orders').update(orderId, { con_fattura: value });
+      await loadOrder();
+    } catch (e: any) {
+      flash(e?.message ?? 'Non sono riuscito a cambiare il tipo di vendita');
+    } finally {
+      busy = false;
+    }
+  }
+
   async function generaProforma() {
     if (!order || busy || !isAdmin || order.stato === 'bozza' || order.stato === 'annullato') return;
+    if (order.con_fattura === false) {
+      flash('Questa vendita è senza fattura: non si emette né proforma né fattura.');
+      return;
+    }
     await loadInvoice();
     if (invoice) {
       goto(`/fatture/${invoice.id}`);
@@ -361,7 +391,8 @@
           totale_imponibile: order.totale_imponibile,
           iva: order.iva,
           iva_percentuale: order.iva_percentuale,
-          note: order.note ? `(Duplicato da ${order.numero_ordine}) ${order.note}` : `Duplicato da ${order.numero_ordine}`
+          note: order.note ? `(Duplicato da ${order.numero_ordine}) ${order.note}` : `Duplicato da ${order.numero_ordine}`,
+          con_fattura: order.con_fattura !== false
         },
         items
           .filter((i) => itemProdId(i))
@@ -382,10 +413,17 @@
   }
 
   $: nextStep = order && order.stato !== 'annullato' ? STATO_STEPS[currentIdx + 1] : undefined;
+  $: delivered = !!order && (order.stato === 'consegnato' || order.stato === 'completato');
+  $: senzaFattura = order?.con_fattura === false;
   const nextLabel: Record<string, string> = {
     confermato: 'Conferma ordine',
     spedito: 'Segna come spedito',
     consegnato: 'Segna come consegnato'
+  };
+  const nextHint: Record<string, string> = {
+    confermato: 'Scarica il magazzino. Non calcola ancora la provvigione.',
+    spedito: 'Solo transito: nessuno scarico e nessuna provvigione.',
+    consegnato: 'Chiude la vendita.'
   };
 </script>
 
@@ -411,6 +449,9 @@
       <span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold {STATO_BADGE_COLORS[order.stato] ?? 'bg-gray-100'}">
         {STATO_LABELS[order.stato] ?? order.stato}
       </span>
+      <span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold {senzaFattura ? 'bg-[#1A1A1A] text-white' : 'bg-[#FFF3CD] text-[#1A1A1A]'}">
+        {senzaFattura ? 'Senza fattura' : 'Con fattura'}
+      </span>
       <span
         class="hidden sm:inline-flex rounded-full px-3 py-1 text-xs font-semibold {CANALE_BADGE_COLORS[order.canale as OrderCanale] ?? 'bg-gray-100'}"
       >
@@ -435,28 +476,27 @@
       {#if order.stato === 'annullato'}
         <p class="text-sm text-rose-700 font-medium">Ordine annullato — la giacenza è stata riallineata.</p>
       {:else}
-        <ol class="flex items-start">
+        <ol class="grid grid-cols-4 gap-1">
           {#each STATO_STEPS as stato, i}
             {@const done = currentIdx > i}
             {@const active = currentIdx === i}
-            <li class="flex items-start flex-1 last:flex-none">
-              <div class="flex flex-col items-center gap-1.5 w-16 sm:w-20">
-                <span
-                  class="h-9 w-9 sm:h-10 sm:w-10 rounded-full grid place-items-center text-sm font-semibold transition-colors {done
-                    ? 'bg-[#F5D547] text-[#1A1A1A]'
-                    : active
-                      ? 'bg-[#1A1A1A] text-white'
-                      : 'bg-[#EDEDED] text-[#9CA3AF]'}"
-                >
-                  {#if done}<Check class="h-4 w-4" />{:else}{i + 1}{/if}
-                </span>
-                <span class="text-[11px] sm:text-xs text-center {active ? 'font-semibold' : 'text-[#6B7280]'}">
-                  {STATO_LABELS[stato]}
-                </span>
-              </div>
+            <li class="relative flex flex-col items-center gap-1 text-center min-w-0">
               {#if i < STATO_STEPS.length - 1}
-                <div class="flex-1 h-0.5 mt-[18px] sm:mt-5 rounded {done ? 'bg-[#F5D547]' : 'bg-[#EDEDED]'}"></div>
+                <span class="absolute left-1/2 top-[18px] sm:top-5 h-0.5 w-full {done ? 'bg-[#F5D547]' : 'bg-[#EDEDED]'}"></span>
               {/if}
+              <span
+                class="relative z-10 h-9 w-9 sm:h-10 sm:w-10 rounded-full grid place-items-center text-sm font-semibold transition-colors {done
+                  ? 'bg-[#F5D547] text-[#1A1A1A]'
+                  : active
+                    ? 'bg-[#1A1A1A] text-white'
+                    : 'bg-[#EDEDED] text-[#9CA3AF]'}"
+              >
+                {#if done}<Check class="h-4 w-4" />{:else}{i + 1}{/if}
+              </span>
+              <span class="text-[11px] sm:text-xs {active ? 'font-semibold' : 'text-[#6B7280]'}">
+                {STATO_LABELS[stato]}
+              </span>
+              <span class="text-[10px] leading-tight text-[#9CA3AF]">{STATO_HINTS[stato]}</span>
             </li>
           {/each}
         </ol>
@@ -478,6 +518,40 @@
               </dd>
             </div>
             <div><dt class="text-xs text-[#6B7280]">Agente</dt><dd class="text-sm font-medium mt-0.5">{agentName(order.expand?.agente)}</dd></div>
+            <div class="sm:col-span-2">
+              <dt class="text-xs text-[#6B7280]">Documento</dt>
+              <dd class="mt-1.5">
+                {#if isAdmin && order.stato === 'bozza'}
+                  <div class="grid grid-cols-2 gap-2 max-w-md">
+                    <button
+                      type="button"
+                      class="min-h-11 rounded-2xl text-sm font-medium {senzaFattura ? 'bg-white border border-black/10' : 'bg-[#1A1A1A] text-white'}"
+                      disabled={busy}
+                      onclick={() => setConFattura(true)}
+                    >
+                      Con fattura
+                    </button>
+                    <button
+                      type="button"
+                      class="min-h-11 rounded-2xl text-sm font-medium {senzaFattura ? 'bg-[#1A1A1A] text-white' : 'bg-white border border-black/10'}"
+                      disabled={busy}
+                      onclick={() => setConFattura(false)}
+                    >
+                      Senza fattura
+                    </button>
+                  </div>
+                {:else}
+                  <p class="text-sm font-medium">{senzaFattura ? 'Senza fattura' : 'Con fattura'}</p>
+                {/if}
+                <p class="text-xs text-[#6B7280] mt-1.5">
+                  {#if senzaFattura}
+                    Provvigione alla consegna. Non entra nel fatturato.
+                  {:else}
+                    Provvigione quando la fattura è pagata.
+                  {/if}
+                </p>
+              </dd>
+            </div>
             <div class="sm:hidden">
               <dt class="text-xs text-[#6B7280]">Canale</dt>
               <dd class="text-sm font-medium mt-0.5">{CANALE_LABELS[order.canale as OrderCanale] ?? order.canale}</dd>
@@ -568,6 +642,15 @@
         <div class="flex flex-col gap-2.5">
           {#if canOperate && nextStep && nextLabel[nextStep]}
             <Button disabled={busy} onclick={() => changeStato(nextStep)}>{busy ? 'Attendere…' : nextLabel[nextStep]}</Button>
+            <p class="text-xs text-[#6B7280]">{nextHint[nextStep]}</p>
+          {:else if delivered && senzaFattura}
+            <p class="text-xs text-emerald-800 rounded-xl bg-emerald-50 p-3">
+              Vendita chiusa senza fattura. La provvigione, se prevista, è maturata alla consegna e non entra nel fatturato.
+            </p>
+          {:else if delivered && !invoice}
+            <p class="text-xs text-[#1A1A1A] rounded-xl bg-[#FFF3CD] p-3">
+              Vendita chiusa. Emetti la fattura: la provvigione matura solo quando la segni pagata.
+            </p>
           {:else if !canOperate && order.stato === 'bozza'}
             <p class="text-xs text-[#6B7280] rounded-xl bg-[#FFF3CD] p-3">
               Ordine in attesa di conferma dall’amministrazione.
@@ -580,8 +663,8 @@
               {invoice.tipo === 'proforma' ? 'Vedi proforma' : 'Vedi fattura'}
               {invoice.numero_fattura ?? ''}
             </Button>
-          {:else if isAdmin && order.stato !== 'bozza' && order.stato !== 'annullato'}
-            <Button variant="secondary" disabled={busy} onclick={generaProforma}>
+          {:else if isAdmin && !senzaFattura && order.stato !== 'bozza' && order.stato !== 'annullato'}
+            <Button variant={delivered ? 'primary' : 'secondary'} disabled={busy} onclick={generaProforma}>
               <FileText class="h-4 w-4" /> Genera proforma
             </Button>
           {/if}

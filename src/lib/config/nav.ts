@@ -80,12 +80,14 @@ export const INVITE_ITEM: NavItem = {
   roles: ['admin']
 };
 
-/** Voci fisse nella bottom nav mobile (le altre stanno nel menu completo). */
-export const MOBILE_PRIMARY: Record<Role, string[]> = {
-  admin: ['dashboard', 'ordini', 'clienti', 'magazzino'],
-  agente: ['dashboard', 'ordini', 'clienti', 'assistente'],
-  magazziniere: ['dashboard', 'magazzino', 'attivita', 'assistente']
+/** Voci sempre visibili. Il resto sta dietro «Altro». Stesse voci su desktop e telefono. */
+export const PRIMARY_IDS: Record<Role, string[]> = {
+  admin: ['dashboard', 'ordini', 'clienti', 'fatture', 'magazzino'],
+  agente: ['dashboard', 'ordini', 'clienti'],
+  magazziniere: ['dashboard', 'magazzino']
 };
+
+export const MOBILE_PRIMARY = PRIMARY_IDS;
 
 export function itemsForRole(role: Role | null): NavItem[] {
   if (!role) return [];

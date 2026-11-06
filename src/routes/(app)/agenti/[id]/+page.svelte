@@ -7,6 +7,7 @@
   import { onMount } from 'svelte';
   import { pb } from '$lib/pocketbase';
   import { logAudit } from '$lib/utils/audit';
+  import { isFatturaContabile, isNonFatturato, sumTotale } from '$lib/utils/revenue';
   import Card from '$lib/components/ui/Card.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
@@ -39,7 +40,8 @@
     agente_padre?: string;
   } | null = null;
   let clients: { id: string; ragione_sociale?: string }[] = [];
-  let orders: { id: string; numero_ordine?: string; data_ordine?: string; totale?: number; stato?: string }[] = [];
+  let orders: { id: string; numero_ordine?: string; data_ordine?: string; totale?: number; stato?: string; con_fattura?: boolean }[] = [];
+  let saleInvoices: { tipo?: string; stato?: string; totale?: number }[] = [];
   let commissions: (AgentCommission & { expand?: { ordine?: { numero_ordine?: string } } })[] = [];
   let loading = true;
   let activeTab: TabId = 'overview';
@@ -177,6 +179,8 @@
   $: totaleMaturate = maturate.reduce((s, c) => s + (c.importo ?? 0), 0);
   $: totaleLiquidate = liquidate.reduce((s, c) => s + (c.importo ?? 0), 0);
   $: provvigioneTotale = totaleMaturate + totaleLiquidate;
+  $: fatturatoAgente = sumTotale(saleInvoices.filter((i) => isFatturaContabile(i)));
+  $: nonFatturatoAgente = sumTotale(orders.filter((o) => isNonFatturato(o)));
 
   $: selectedMaturateList = maturate.filter((c) => selectedCommissionIds.includes(c.id));
   $: totaleSelectedMaturate = selectedMaturateList.reduce((s, c) => s + (c.importo ?? 0), 0);
@@ -220,7 +224,7 @@
       labels: performanceMensile.labels,
       datasets: [
         {
-          label: 'Fatturato',
+          label: 'Ordini consegnati',
           data: performanceMensile.values,
           backgroundColor: '#F5D547',
           borderRadius: 6
@@ -290,7 +294,7 @@
         otherAgents = [];
       }
 
-      const [clientsResult, ordersResult, commResult] = await Promise.allSettled([
+      const [clientsResult, ordersResult, commResult, invoiceResult] = await Promise.allSettled([
         pb.collection('clients').getFullList({ filter: `agente = "${agentId}"` }),
         pb.collection('orders').getFullList({
           filter: `agente = "${agentId}"`,
@@ -301,8 +305,10 @@
           filter: `agente = "${agentId}"`,
           expand: 'agente,ordine',
           sort: '-data_maturata'
-        })
+        }),
+        pb.collection('invoices').getFullList({ filter: `ordine.agente = "${agentId}"` })
       ]);
+      saleInvoices = invoiceResult.status === 'fulfilled' ? (invoiceResult.value as typeof saleInvoices) : [];
 
       clients = clientsResult.status === 'fulfilled' ? clientsResult.value : [];
       const ordersList = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
@@ -585,6 +591,14 @@
         <p class="text-xs text-[#6B7280]">Percentuale</p>
         <p class="text-2xl font-bold text-[#1A1A1A]">{agent?.provvigione_percentuale ?? 0}%</p>
       </div>
+      <div class="rounded-2xl bg-white/70 px-5 py-4">
+        <p class="text-xs text-[#6B7280]">Fatturato</p>
+        <p class="text-2xl font-bold text-[#1A1A1A]">{formatEuro(fatturatoAgente)}</p>
+      </div>
+      <div class="rounded-2xl bg-white/70 px-5 py-4">
+        <p class="text-xs text-[#6B7280]">Non fatturato</p>
+        <p class="text-2xl font-bold text-[#1A1A1A]">{formatEuro(nonFatturatoAgente)}</p>
+      </div>
     </div>
 
     <div class="flex gap-2">
@@ -679,7 +693,8 @@
         </Card>
 
         <Card className="lg:col-span-1">
-          <h2 class="text-sm font-medium text-[#1A1A1A] mb-4">Performance mensile</h2>
+          <h2 class="text-sm font-medium text-[#1A1A1A] mb-1">Ordini consegnati</h2>
+          <p class="text-xs text-[#6B7280] mb-4">Non è il fatturato: quello è la cifra qui sopra.</p>
           <div class="h-48">
             <BarChart config={perfChartConfig} />
           </div>
@@ -690,8 +705,9 @@
     {#if activeTab === 'provvigioni'}
       <Card>
         <p class="text-sm text-[#6B7280] mb-4">
-          <strong class="text-[#1A1A1A]">Una provvigione per ordine, all’incasso.</strong>
-          Matura quando la fattura (non la proforma) è <strong>pagata</strong>.
+          <strong class="text-[#1A1A1A]">Una provvigione per ordine.</strong>
+          Con fattura matura quando la fattura (non la proforma) è <strong>pagata</strong>.
+          Senza fattura matura alla <strong>consegna</strong> e non entra nel fatturato.
           Piramide: se ha un agente padre, la sua % è tolta da quella del padre (non si somma).
         </p>
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-4">
