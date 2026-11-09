@@ -7,8 +7,8 @@ function createSidebarStore() {
   let initial = true;
   if (browser) {
     const saved = localStorage.getItem(SIDEBAR_KEY);
-    // Default: espansa solo su schermi ampi, altrimenti rail compatta
-    initial = saved !== null ? saved === '1' : window.innerWidth >= 1280;
+    // Aperta appena il menu laterale c'è: sotto i 1280 restava una colonna di sole icone.
+    initial = saved !== null ? saved === '1' : window.innerWidth >= 1024;
   }
   const { subscribe, set, update } = writable<boolean>(initial);
   return {

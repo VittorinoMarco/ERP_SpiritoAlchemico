@@ -239,12 +239,12 @@
 
     <!-- Tabella -->
     <Card className="overflow-hidden p-0">
-      <div class="overflow-x-auto">
+      <div class="table-scroll">
         <table class="w-full">
           <thead>
             <tr class="border-b border-black/5">
-              <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">N. Fattura</th>
-              <th class="hidden sm:table-cell px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Data</th>
+              <th class="pin px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">N. Fattura</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Data</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Cliente</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Stato</th>
               <th class="px-4 py-3 text-right text-xs font-medium text-[#6B7280] uppercase">Totale</th>
@@ -260,11 +260,11 @@
                 role="button"
                 tabindex="0"
               >
-                <td class="px-4 py-3 text-sm font-bold text-[#1A1A1A]">
+                <td class="pin px-4 py-3 text-sm font-bold text-[#1A1A1A]">
                   {inv.numero_fattura ?? '—'}
                 </td>
-                <td class="hidden sm:table-cell px-4 py-3 text-sm text-[#6B7280]">{formatDate(inv.data_emissione)}</td>
-                <td class="px-4 py-3 text-sm text-[#1A1A1A] max-w-[9rem] sm:max-w-none truncate">
+                <td class="px-4 py-3 text-sm text-[#6B7280]">{formatDate(inv.data_emissione)}</td>
+                <td class="px-4 py-3 text-sm text-[#1A1A1A]">
                   {inv.expand?.cliente?.ragione_sociale ?? '—'}
                 </td>
                 <td class="px-4 py-3">

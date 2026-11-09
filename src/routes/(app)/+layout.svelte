@@ -80,9 +80,9 @@
 
   <Sidebar onlogout={logout} />
 
-  <div class="min-h-dvh lg:pl-[calc(var(--side)+2rem)] transition-[padding] duration-300 ease-out">
+  <div class="min-h-dvh lg:pl-[calc(var(--side)+2.75rem)] lg:pt-3 transition-[padding] duration-300 ease-out">
     <TopBar onlogout={logout} />
-    <main id="contenuto" class="px-4 lg:px-8 pt-2 lg:pt-3 pb-nav max-w-[1600px] mx-auto">
+    <main id="contenuto" class="px-4 lg:px-4 pt-4 lg:pt-5 pb-nav max-w-[1600px]">
       <slot />
     </main>
   </div>

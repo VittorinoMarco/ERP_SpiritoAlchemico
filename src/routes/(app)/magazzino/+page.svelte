@@ -417,7 +417,7 @@
           </div>
         </div>
         <!-- Mobile -->
-        <ul class="md:hidden divide-y divide-black/5 -mx-1">
+        <ul class="hidden divide-y divide-black/5 -mx-1">
           {#each filteredGiacenze as inv (inv.id)}
             {@const riserva = draftReservations.get(inv.prodotto) ?? 0}
             {@const sottoScorta = isSottoScortaGiacenza(inv.giacenza)}
@@ -441,11 +441,11 @@
             </li>
           {/each}
         </ul>
-        <div class="hidden md:block overflow-x-auto">
+        <div class="table-scroll">
           <table class="w-full">
             <thead>
               <tr class="border-b border-black/5">
-                <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Prodotto</th>
+                <th class="pin px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Prodotto</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">SKU</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase">Giacenza</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-[#6B7280] uppercase" title="Ordini in bozza">Riserva bozze</th>
@@ -464,7 +464,7 @@
                 {@const previsione = Math.max(0, (inv.giacenza ?? 0) - riserva)}
                 {@const sottoScorta = isSottoScortaGiacenza(inv.giacenza)}
                 <tr class="border-b border-black/5 last:border-0 hover:bg-[#FFFDE7] {sottoScorta ? 'bg-[#FEE2E2]' : ''}">
-                  <td class="px-4 py-3">
+                  <td class="pin px-4 py-3">
                     <div class="flex items-center gap-3">
                       {#if inv.expand?.prodotto && getImageUrl(inv.expand.prodotto)}
                         <img

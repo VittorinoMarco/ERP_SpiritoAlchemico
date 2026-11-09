@@ -5,11 +5,12 @@
    arrotondate, rail scura, accenti giallo brand / arancio / blu)
 ------------------------------------------------------------------- */
 @theme {
-  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-sans: 'Outfit', system-ui, sans-serif;
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
 
   --color-ink: #1a1a1a;
-  --color-muted: #6b7280;
-  --color-subtle: #9ca3af;
+  --color-muted: #3e4654;
+  --color-subtle: #4e5968;
   --color-brand: #f5d547;
   --color-brand-soft: #fff3cd;
   --color-brand-wash: #fffde7;
@@ -24,9 +25,10 @@
 :root {
   --topbar-h: 60px;
   --bottomnav-h: 68px;
-  --sidebar-w: 88px;
-  --sidebar-w-open: 248px;
+  --sidebar-w: 84px;
+  --sidebar-w-open: 272px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   /* Spazio verticale occupato dalla "cornice" (top bar + bottom nav + padding) su mobile */
   --chrome-y: calc(var(--topbar-h) + var(--bottomnav-h) + var(--safe-bottom) + 1.75rem);
 }
@@ -67,9 +69,8 @@
     z-index: -1;
     pointer-events: none;
     background:
-      radial-gradient(60% 50% at 100% 0%, rgba(245, 213, 71, 0.26), transparent 62%),
-      radial-gradient(55% 45% at 0% 100%, rgba(255, 170, 190, 0.2), transparent 62%),
-      linear-gradient(180deg, #f5f4f1 0%, #ecebe6 100%);
+      radial-gradient(48% 36% at 100% 0%, rgba(245, 213, 71, 0.22), transparent 70%),
+      linear-gradient(180deg, #f7f6f2 0%, #eeede8 100%);
   }
 
   ::selection {
@@ -91,10 +92,24 @@
     cursor: pointer;
   }
 
-  h1,
+  h1 {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+    font-weight: 560;
+    font-size: clamp(1.75rem, 1.2vw + 1.2rem, 2rem);
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+  }
+
   h2,
   h3 {
+    font-family: var(--font-sans);
     letter-spacing: -0.015em;
+  }
+
+  h2 {
+    font-size: 1.125rem;
+    font-weight: 600;
   }
 }
 
@@ -138,7 +153,7 @@
   .surface,
   .glass-panel {
     border-radius: 28px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5));
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.78));
     border: 1px solid rgba(255, 255, 255, 0.82);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.95),
@@ -236,14 +251,46 @@
     }
   }
 
-  /* ---------- Tabelle ---------- */
+  /* ---------- Tabelle: tutte le colonne restano leggibili, si scorrono ---------- */
+  .table-scroll,
+  main .overflow-x-auto {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(26, 26, 26, 0.28) transparent;
+  }
+  .table-scroll > table,
+  main .overflow-x-auto > table {
+    width: max-content;
+    min-width: 100%;
+  }
   main table {
     border-collapse: separate;
     border-spacing: 0;
   }
   main table thead th {
-    background: rgba(245, 244, 240, 0.7);
+    background: rgba(245, 244, 240, 0.92);
     white-space: nowrap;
+  }
+  main table th,
+  main table td {
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .table-scroll th.pin,
+  .table-scroll td.pin {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 8px 0 12px -10px rgba(16, 16, 16, 0.35);
+  }
+  .table-scroll thead th.pin {
+    z-index: 2;
+    background: #f6f5f1;
+  }
+  .table-scroll tbody tr:hover td.pin {
+    background: #fffde7;
   }
   main table tbody tr {
     transition: background-color 0.12s ease;
@@ -255,7 +302,7 @@
   /* ---------- Griglie pagina ---------- */
   .page-grid {
     display: grid;
-    gap: 1rem;
+    gap: 1.5rem;
     grid-template-columns: minmax(0, 1fr);
   }
   @media (min-width: 768px) {
@@ -266,7 +313,7 @@
   @media (min-width: 1024px) {
     .page-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 1.25rem;
+      gap: 1.5rem;
     }
   }
   @media (min-width: 1280px) {
@@ -277,7 +324,7 @@
 
   .analytics-bento {
     display: grid;
-    gap: 1rem;
+    gap: 1.5rem;
     grid-template-columns: minmax(0, 1fr);
   }
   @media (min-width: 768px) {
@@ -288,7 +335,7 @@
   @media (min-width: 1024px) {
     .analytics-bento {
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 1.25rem;
+      gap: 1.5rem;
     }
   }
   @media (min-width: 1280px) {
@@ -299,7 +346,7 @@
 
   /* Animazioni leggere */
   .fade-in {
-    animation: fade-in 0.22s ease both;
+    animation: fade-in 160ms var(--ease-out) both;
   }
   .sheet-up {
     animation: sheet-up 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -318,11 +365,9 @@
 @keyframes fade-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: none;
   }
 }
 
@@ -345,4 +390,44 @@
   .sheet-up {
     animation: none;
   }
+}
+
+/* Fuori dai layer: vince su `w-full` e fa scorrere la tabella invece di tagliare le colonne. */
+.table-scroll > table {
+  width: max-content;
+  min-width: 100%;
+}
+
+/* Contrasto e pavimento tipografico: le utility grigie e da 10–11px non reggono sul crema. */
+.text-\[\#9CA3AF\] {
+  color: #4e5968;
+}
+.text-\[\#6B7280\] {
+  color: #3e4654;
+}
+.text-\[10px\],
+.text-\[11px\] {
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+h1 {
+  font-size: clamp(1.75rem, 1.2vw + 1.2rem, 2rem);
+  line-height: 1.15;
+}
+
+main table th,
+main table td {
+  padding-top: 0.8rem;
+  padding-bottom: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+main table thead th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #3e4654;
+}
+main table td {
+  font-size: 0.875rem;
 }

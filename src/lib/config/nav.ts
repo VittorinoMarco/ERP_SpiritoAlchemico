@@ -80,11 +80,18 @@ export const INVITE_ITEM: NavItem = {
   roles: ['admin']
 };
 
-/** Voci sempre visibili. Il resto sta dietro «Altro». Stesse voci su desktop e telefono. */
+/** Voci in cima al menu. */
 export const PRIMARY_IDS: Record<Role, string[]> = {
   admin: ['dashboard', 'ordini', 'clienti', 'fatture', 'magazzino'],
   agente: ['dashboard', 'ordini', 'clienti'],
   magazziniere: ['dashboard', 'magazzino']
+};
+
+/** Seconda fascia, sempre scritta. Il resto sta sotto «Altro». */
+export const MORE_IDS: Record<Role, string[]> = {
+  admin: ['agenti', 'prodotti', 'uscite', 'analytics'],
+  agente: [],
+  magazziniere: []
 };
 
 export const MOBILE_PRIMARY = PRIMARY_IDS;

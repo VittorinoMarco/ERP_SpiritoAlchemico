@@ -47,23 +47,23 @@
 
 <div class="rounded-[28px] p-5 lg:p-6 flex items-start justify-between gap-3 min-w-0 {t.box}">
   <div class="min-w-0">
-    <p class="text-[11px] font-semibold uppercase tracking-wider {t.label}">
+    <p class="text-xs font-medium tracking-normal {t.label}">
       {label}
     </p>
-    <p class="mt-2 text-2xl sm:text-3xl font-bold tracking-tight truncate">
+    <p class="mt-2 font-sans text-[2rem] font-semibold leading-none tabular-nums tracking-tight">
       {valore}
     </p>
 
     {#if trend !== null && trendLabel}
-      <div class="mt-3 inline-flex max-w-full items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium {t.pill}">
+      <div class="mt-3 flex w-fit max-w-full items-start gap-1.5 rounded-2xl px-3 py-1.5 text-xs font-medium leading-snug {t.pill}">
         {#if trend === 'up'}
-          <span class="text-emerald-500">▲</span>
+          <span class="text-emerald-600">▲</span>
         {:else if trend === 'down'}
-          <span class="text-rose-500">▼</span>
+          <span class="text-rose-600">▼</span>
         {:else}
           <span class="opacity-50">■</span>
         {/if}
-        <span class="truncate">{trendLabel}</span>
+        <span>{trendLabel}</span>
       </div>
     {/if}
   </div>

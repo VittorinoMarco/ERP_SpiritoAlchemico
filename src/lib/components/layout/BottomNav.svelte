@@ -35,7 +35,7 @@
             <span class="absolute -top-1 -right-1.5 h-2.5 w-2.5 rounded-full bg-[#FF5C5C] ring-2 ring-white"></span>
           {/if}
         </span>
-        <span class="text-[10px] font-semibold leading-none truncate max-w-full px-1">{item.short ?? item.label}</span>
+        <span class="max-w-full text-[9px] font-semibold leading-none tracking-tight">{item.short ?? item.label}</span>
       </a>
     {/if}
   {/each}
@@ -49,6 +49,6 @@
     aria-label="Apri menu completo"
   >
     <LayoutGrid class="h-[21px] w-[21px]" />
-    <span class="text-[10px] font-semibold leading-none">Menu</span>
+    <span class="text-[9px] font-semibold leading-none tracking-tight">Menu</span>
   </button>
 </nav>

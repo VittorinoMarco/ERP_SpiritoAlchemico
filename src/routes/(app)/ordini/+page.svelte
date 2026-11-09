@@ -216,11 +216,11 @@
     </EmptyState>
   {:else}
     <!-- Desktop -->
-    <div class="hidden md:block overflow-x-auto">
+    <div class="table-scroll">
       <table class="w-full">
         <thead>
           <tr class="border-b border-black/5">
-            <th class="px-6 py-3 text-left text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Ordine</th>
+            <th class="pin px-6 py-3 text-left text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Ordine</th>
             <th class="px-4 py-3 text-left text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Data</th>
             <th class="px-4 py-3 text-left text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Cliente</th>
             {#if isAdmin}<th class="px-4 py-3 text-left text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Agente</th>{/if}
@@ -237,9 +237,9 @@
               onkeydown={(e) => e.key === 'Enter' && goto(`/ordini/${o.id}`)}
               tabindex="0"
             >
-              <td class="px-6 py-3.5 text-sm font-bold">{o.numero_ordine ?? '—'}</td>
+              <td class="pin px-6 py-3.5 text-sm font-bold">{o.numero_ordine ?? '—'}</td>
               <td class="px-4 py-3.5 text-sm text-[#6B7280] whitespace-nowrap">{formatData(o.data_ordine)}</td>
-              <td class="px-4 py-3.5 text-sm max-w-[16rem] truncate">{o.expand?.cliente?.ragione_sociale ?? '—'}</td>
+              <td class="px-4 py-3.5 text-sm">{o.expand?.cliente?.ragione_sociale ?? '—'}</td>
               {#if isAdmin}
                 <td class="px-4 py-3.5">
                   {#if o.expand?.agente}
@@ -270,7 +270,7 @@
     </div>
 
     <!-- Mobile -->
-    <ul class="md:hidden divide-y divide-black/5">
+    <ul class="hidden divide-y divide-black/5">
       {#each paginated as o (o.id)}
         <li>
           <a href="/ordini/{o.id}" class="block px-4 py-4 active:bg-[#FFFDE7]">

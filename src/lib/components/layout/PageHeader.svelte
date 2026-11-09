@@ -3,7 +3,7 @@
   export let sottotitolo: string | undefined = undefined;
 </script>
 
-<section class="mb-5 lg:mb-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+<section class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
   <div class="min-w-0">
     <h1 class="text-2xl sm:text-3xl lg:text-4xl font-bold text-[#1A1A1A] tracking-tight">
       {titolo}

@@ -348,7 +348,7 @@
         <EmptyState icon={Wallet} titolo="Nessuna uscita" testo="Nessuna uscita corrisponde ai filtri selezionati." />
       {:else}
         <!-- Mobile -->
-        <ul class="md:hidden divide-y divide-black/5">
+        <ul class="hidden divide-y divide-black/5">
           {#each filtered as e (e.id)}
             <li class="p-4 space-y-2">
               <div class="flex items-start justify-between gap-3">
@@ -402,7 +402,7 @@
         </ul>
 
         <!-- Desktop -->
-        <div class="hidden md:block overflow-x-auto">
+        <div class="table-scroll">
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-black/5 text-left text-xs text-[#6B7280]">
@@ -431,8 +431,8 @@
                       {EXPENSE_ORIGINE_LABELS[(e.origine as ExpenseOrigine) || 'manuale'] ?? 'Manuale'}
                     </span>
                   </td>
-                  <td class="px-3 py-3 max-w-[260px]">
-                    <p class="font-medium truncate">{e.descrizione || '—'}</p>
+                  <td class="px-3 py-3">
+                    <p class="font-medium">{e.descrizione || '—'}</p>
                     {#if e.numero_documento}<p class="text-xs text-[#6B7280]">Doc. {e.numero_documento}</p>{/if}
                     {#if e.categoria}<p class="text-xs text-[#6B7280]">{e.categoria}</p>{/if}
                   </td>

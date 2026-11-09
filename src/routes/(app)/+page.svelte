@@ -260,9 +260,9 @@
     <p class="mb-4 rounded-2xl bg-amber-50 border border-amber-100 px-4 py-3 text-sm text-amber-800">{loadError}</p>
   {/if}
 
-  <div class="space-y-4 lg:space-y-5 fade-in">
+  <div class="space-y-8 fade-in">
     <!-- KPI -->
-    <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 sm:gap-4">
+    <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {#if isAdmin}
         <KpiCard tone="yellow" label="Fatturato del mese" valore={formatEuro(fatturatoMese, 0)} trend={trend.t} trendLabel={trend.label} icon={Receipt} />
         <KpiCard label="Non fatturato" valore={formatEuro(nonFatturatoMese, 0)} trend="flat" trendLabel="Senza fattura, questo mese" icon={ShoppingCart} />
@@ -282,7 +282,7 @@
     </section>
 
     {#if isAdmin || isAgente}
-      <section class="grid gap-4 lg:gap-5 lg:grid-cols-3">
+      <section class="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2 min-w-0">
           <div class="flex items-start justify-between gap-3 mb-4">
             <div>
@@ -305,7 +305,7 @@
         </Card>
       </section>
 
-      <section class="grid gap-4 lg:gap-5 lg:grid-cols-3">
+      <section class="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2 min-w-0">
           <h2 class="text-base font-semibold">{isAdmin ? 'Fatturato' : 'Ordinato'} mensile</h2>
           <p class="text-xs text-[#6B7280] mt-0.5 mb-4">Ultimi 6 mesi</p>
@@ -346,7 +346,7 @@
                   <span class="h-9 w-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center"><Wallet class="h-4 w-4" /></span>
                   <span class="flex-1 min-w-0">
                     <span class="block text-sm font-semibold">{formatEuro(provvigioniMaturate, 0)} provvigioni da liquidare</span>
-                    <span class="block text-xs text-[#6B7280]">Maturano all’incasso della fattura</span>
+                    <span class="block text-xs text-[#6B7280]">Con fattura all’incasso, senza fattura alla consegna</span>
                   </span>
                   <ArrowRight class="h-4 w-4 text-[#9CA3AF]" />
                 </a>
@@ -381,18 +381,20 @@
         {#if ultimiOrdini.length === 0}
           <p class="px-6 pb-8 pt-2 text-sm text-[#6B7280]">Non ci sono ancora ordini. Crea il primo con “Nuovo ordine”.</p>
         {:else}
-          <ul class="divide-y divide-black/5">
+          <ul class="divide-y divide-black/5 overflow-x-auto">
             {#each ultimiOrdini as o (o.id)}
               <li>
-                <a href="/ordini/{o.id}" class="flex items-center gap-3 px-5 lg:px-6 py-3.5 hover:bg-[#FFFDE7] transition-colors">
-                  <span class="min-w-0 flex-1">
-                    <span class="block text-sm font-semibold truncate">{o.numero_ordine ?? 'Ordine'} · {o.expand?.cliente?.ragione_sociale ?? '—'}</span>
-                    <span class="block text-xs text-[#6B7280]">{new Date(o.data_ordine).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                  </span>
-                  <span class="hidden sm:inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium {STATO_BADGE_COLORS[o.stato as OrderStato] ?? 'bg-gray-100 text-gray-700'}">
+                <a
+                  href="/ordini/{o.id}"
+                  class="flex flex-col gap-1 px-5 py-3.5 transition-colors hover:bg-[#FFFDE7] sm:grid sm:min-w-[44rem] sm:grid-cols-[10.5rem_minmax(12rem,1fr)_7.5rem_auto_6.5rem] sm:items-center sm:gap-x-4 lg:px-6"
+                >
+                  <span class="text-sm font-semibold">{o.numero_ordine ?? 'Ordine'}</span>
+                  <span class="text-sm text-[#1A1A1A]">{o.expand?.cliente?.ragione_sociale ?? '—'}</span>
+                  <span class="text-xs text-[#6B7280] sm:text-sm">{new Date(o.data_ordine).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                  <span class="w-fit rounded-full px-2.5 py-0.5 text-xs font-medium {STATO_BADGE_COLORS[o.stato as OrderStato] ?? 'bg-gray-100 text-gray-700'}">
                     {STATO_LABELS[o.stato as OrderStato] ?? o.stato}
                   </span>
-                  <span class="text-sm font-bold tabular-nums w-24 text-right">{formatEuro(o.totale)}</span>
+                  <span class="text-sm font-bold tabular-nums sm:text-right">{formatEuro(o.totale)}</span>
                 </a>
               </li>
             {/each}
@@ -401,7 +403,7 @@
       </Card>
     {:else}
       <!-- Magazziniere -->
-      <section class="grid gap-4 lg:gap-5 lg:grid-cols-2">
+      <section class="grid gap-6 lg:grid-cols-2">
         <Card className="!p-0 overflow-hidden min-w-0">
           <div class="flex items-center justify-between px-5 lg:px-6 pt-5 pb-3">
             <h2 class="text-base font-semibold">Prodotti sotto scorta</h2>

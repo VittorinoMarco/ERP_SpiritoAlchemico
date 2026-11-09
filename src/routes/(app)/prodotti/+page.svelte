@@ -187,7 +187,7 @@
       <Spinner />
     {:else}
       <!-- Desktop table -->
-      <div class="hidden md:block overflow-x-auto">
+      <div class="table-scroll">
         <table class="w-full">
           <thead>
             <tr class="border-b border-black/5">
@@ -299,7 +299,7 @@
       </div>
 
       <!-- Mobile card list -->
-      <div class="md:hidden divide-y divide-black/5">
+      <div class="hidden divide-y divide-black/5">
         {#each paginatedProducts as p (p.id)}
           <div
             role="button"

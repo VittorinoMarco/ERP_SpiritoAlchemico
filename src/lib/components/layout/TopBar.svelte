@@ -24,7 +24,7 @@
 <svelte:window onkeydown={(e) => e.key === 'Escape' && (userMenuOpen = false)} />
 
 <header
-  class="sticky top-0 z-30 h-[var(--topbar-h)] flex items-center gap-3 px-4 lg:px-8 bg-[#F4F3F0]/80 lg:bg-transparent backdrop-blur-xl lg:backdrop-blur-none pt-[env(safe-area-inset-top)] box-content"
+  class="sticky top-0 lg:top-3 z-30 h-[var(--topbar-h)] flex items-center gap-3 px-4 lg:mx-4 lg:px-3 lg:rounded-[22px] lg:border lg:border-white/80 lg:bg-white/60 lg:shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_16px_36px_-24px_rgba(16,16,16,0.45)] lg:backdrop-blur-xl bg-[#F4F3F0]/85 backdrop-blur-xl pt-[env(safe-area-inset-top)] lg:pt-0 box-content"
 >
   <!-- Mobile: brand + sezione corrente -->
   <a href="/" class="lg:hidden flex items-center gap-2.5 min-w-0" aria-label="Dashboard">
@@ -47,7 +47,7 @@
 
   <div class="flex-1 lg:hidden"></div>
 
-  <div class="flex items-center gap-2 flex-shrink-0">
+  <div class="ml-auto flex items-center gap-2 flex-shrink-0">
     <button
       type="button"
       class="lg:hidden h-10 w-10 inline-flex items-center justify-center rounded-full bg-white/85 text-[#1A1A1A] shadow-sm"

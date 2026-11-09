@@ -571,7 +571,7 @@
             <p class="px-6 py-10 text-center text-sm text-[#6B7280]">Nessuna riga</p>
           {:else}
             <!-- Mobile -->
-            <ul class="md:hidden divide-y divide-black/5">
+            <ul class="hidden divide-y divide-black/5">
               {#each items as it (it.id)}
                 <li class="px-5 py-3.5 flex items-start justify-between gap-3">
                   <div class="min-w-0">
@@ -585,7 +585,7 @@
               {/each}
             </ul>
             <!-- Desktop -->
-            <div class="hidden md:block">
+            <div class="table-scroll">
               <table class="w-full text-sm">
                 <thead>
                   <tr class="text-left text-xs text-[#6B7280]">

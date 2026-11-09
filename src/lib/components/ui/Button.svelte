@@ -31,7 +31,7 @@
   {type}
   {onclick}
   {disabled}
-  class={`inline-flex items-center justify-center gap-2 rounded-2xl font-medium whitespace-nowrap select-none transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#F5D547] ${sizeClasses[size]} ${variantClasses[variant]} ${
+  class={`inline-flex items-center justify-center gap-2 rounded-2xl font-medium whitespace-nowrap select-none transition-[transform,background-color,color,box-shadow] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#F5D547] ${sizeClasses[size]} ${variantClasses[variant]} ${
     disabled ? 'opacity-50 pointer-events-none' : ''
   } ${className} ${klass}`}
 >
