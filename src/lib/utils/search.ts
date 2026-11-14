@@ -1,6 +1,6 @@
 import { pb } from '$lib/pocketbase';
 
-export type SearchResultType = 'products' | 'clients' | 'orders' | 'invoices' | 'inventory';
+export type SearchResultType = 'crm' | 'products' | 'clients' | 'orders' | 'invoices' | 'inventory';
 
 export interface SearchResult {
   id: string;
@@ -80,7 +80,7 @@ export async function searchPocketBase(
   aiFilters?: AIFilterResponse,
   aiUsed?: boolean,
   /** Tipi consentiti al ruolo corrente (default: tutti) */
-  allowed: SearchResultType[] = ['products', 'clients', 'orders', 'invoices', 'inventory']
+  allowed: SearchResultType[] = ['crm', 'products', 'clients', 'orders', 'invoices', 'inventory']
 ): Promise<SearchResult[]> {
   const q = query.trim();
   const results: SearchResult[] = [];
@@ -91,6 +91,11 @@ export async function searchPocketBase(
   const productFilter = !allowed.includes('products')
     ? ''
     : aiFilters?.products || (q ? buildTextFilter(q, ['nome', 'sku', 'descrizione']) : '');
+  const crmFilter = !allowed.includes('crm')
+    ? ''
+    : q
+      ? buildTextFilter(q, ['nome', 'ragione_sociale', 'email', 'citta', 'referente'])
+      : '';
   const clientFilter = !allowed.includes('clients')
     ? ''
     : aiFilters?.clients || (q ? buildTextFilter(q, ['ragione_sociale', 'email', 'citta']) : '');
@@ -123,6 +128,27 @@ export async function searchPocketBase(
               title: item.nome ?? '—',
               subtitle: item.sku ?? '',
               url: `/prodotti/${item.id}`,
+              aiInterpreted: ai
+            });
+          }
+        })
+        .catch(() => {})
+    );
+  }
+
+  if (crmFilter) {
+    promises.push(
+      pb
+        .collection('crm_contatti')
+        .getList(1, 5, { filter: crmFilter })
+        .then((r) => {
+          for (const item of r.items as any[]) {
+            results.push({
+              id: item.id,
+              type: 'crm',
+              title: item.ragione_sociale || item.nome || '—',
+              subtitle: item.email || item.citta || '',
+              url: `/crm/${item.id}`,
               aiInterpreted: ai
             });
           }
@@ -219,7 +245,7 @@ export async function searchPocketBase(
   }
 
   await Promise.all(promises);
-  const typeOrder: SearchResultType[] = ['products', 'clients', 'orders', 'invoices', 'inventory'];
+  const typeOrder: SearchResultType[] = ['crm', 'products', 'clients', 'orders', 'invoices', 'inventory'];
   results.sort((a, b) => typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type));
   return results;
 }

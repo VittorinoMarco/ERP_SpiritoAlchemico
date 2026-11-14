@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   ShoppingCart,
+  Contact,
   Users,
   UserCircle,
   FileText,
@@ -45,6 +46,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/', icon: LayoutDashboard, group: 'panoramica', roles: ALL },
 
   { id: 'ordini', label: 'Ordini', href: '/ordini', icon: ShoppingCart, group: 'vendite', roles: ['admin', 'agente'] },
+  { id: 'crm', label: 'CRM', short: 'CRM', href: '/crm', icon: Contact, group: 'vendite', roles: ['admin', 'agente'] },
   { id: 'clienti', label: 'Clienti', href: '/clienti', icon: Users, group: 'vendite', roles: ['admin', 'agente'] },
   { id: 'agenti', label: 'Agenti', href: '/agenti', icon: UserCircle, group: 'vendite', roles: ['admin'] },
   { id: 'fatture', label: 'Fatture', href: '/fatture', icon: FileText, group: 'vendite', roles: ['admin'] },
@@ -82,8 +84,8 @@ export const INVITE_ITEM: NavItem = {
 
 /** Voci in cima al menu. */
 export const PRIMARY_IDS: Record<Role, string[]> = {
-  admin: ['dashboard', 'ordini', 'clienti', 'fatture', 'magazzino'],
-  agente: ['dashboard', 'ordini', 'clienti'],
+  admin: ['dashboard', 'ordini', 'crm', 'clienti', 'fatture', 'magazzino'],
+  agente: ['dashboard', 'ordini', 'crm', 'clienti'],
   magazziniere: ['dashboard', 'magazzino']
 };
 

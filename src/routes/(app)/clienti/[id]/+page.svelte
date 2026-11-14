@@ -39,11 +39,14 @@
     try {
       client = await pb.collection('clients').getOne(clientId, { expand: 'agente' });
 
-      const ordersList = await pb.collection('orders').getFullList({
-        filter: `cliente = "${clientId}"`,
-        sort: '-data_ordine'
-      });
-      orders = ordersList;
+      try {
+        orders = await pb.collection('orders').getFullList({
+          filter: `cliente = "${clientId}"`,
+          sort: '-data_ordine'
+        });
+      } catch {
+        orders = [];
+      }
       try {
         invoices = await pb.collection('invoices').getFullList({ filter: `cliente = "${clientId}"` });
       } catch {
@@ -51,12 +54,16 @@
       }
 
       if (isAdmin) {
-        const usersList = await pb.collection('users').getFullList({ filter: 'ruolo = "agente"' });
-        agents = usersList.map((u: any) => ({
-          id: u.id,
-          name: u.nome ? [u.nome, u.cognome].filter(Boolean).join(' ') : u.email,
-          email: u.email
-        }));
+        try {
+          const usersList = await pb.collection('users').getFullList({ filter: 'ruolo = "agente"' });
+          agents = usersList.map((u: any) => ({
+            id: u.id,
+            name: u.nome ? [u.nome, u.cognome].filter(Boolean).join(' ') : u.email,
+            email: u.email
+          }));
+        } catch {
+          agents = [];
+        }
       }
     } catch {
       client = null;
@@ -206,6 +213,14 @@
           <div class="flex justify-between sm:block sm:space-x-2">
             <dt class="text-sm text-[#6B7280]">PEC</dt>
             <dd class="text-sm font-medium text-[#1A1A1A]">{client.pec ?? '—'}</dd>
+          </div>
+          <div class="flex justify-between sm:block sm:space-x-2">
+            <dt class="text-sm text-[#6B7280]">Codice fiscale</dt>
+            <dd class="text-sm font-medium text-[#1A1A1A]">{client.codice_fiscale ?? '—'}</dd>
+          </div>
+          <div class="flex justify-between sm:block sm:space-x-2">
+            <dt class="text-sm text-[#6B7280]">Referente</dt>
+            <dd class="text-sm font-medium text-[#1A1A1A]">{client.referente ?? '—'}</dd>
           </div>
           <div class="flex justify-between sm:block sm:space-x-2 sm:col-span-2">
             <dt class="text-sm text-[#6B7280]">Indirizzo</dt>

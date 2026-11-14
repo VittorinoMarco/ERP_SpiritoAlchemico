@@ -8,7 +8,7 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "lint": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "echo \"No tests configured\"",
+    "test": "node --experimental-strip-types --test scripts/crm-handoff.test.ts",
     "webhook": "node server/webhook.js",
     "backup": "node server/backup.js",
     "pb:sync": "node scripts/sync-pocketbase-schema.mjs",
