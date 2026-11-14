@@ -6,6 +6,7 @@
   import type { Client, ClientTipo } from '$lib/types/client';
   import { pb } from '$lib/pocketbase';
   import { currentUser } from '$lib/stores/auth';
+  import { unknownFieldNames } from '$lib/utils/crm';
 
   export let open = false;
   export let client: Client | null = null;
@@ -17,8 +18,10 @@
   let ragione_sociale = '';
   let tipo: ClientTipo = 'horeca';
   let partita_iva = '';
+  let codice_fiscale = '';
   let codice_sdi = '';
   let pec = '';
+  let referente = '';
   let indirizzo = '';
   let citta = '';
   let provincia = '';
@@ -34,8 +37,10 @@
     ragione_sociale = client.ragione_sociale ?? '';
     tipo = (client.tipo as ClientTipo) ?? 'horeca';
     partita_iva = client.partita_iva ?? '';
+    codice_fiscale = client.codice_fiscale ?? '';
     codice_sdi = client.codice_sdi ?? '';
     pec = client.pec ?? '';
+    referente = client.referente ?? '';
     indirizzo = client.indirizzo ?? '';
     citta = client.citta ?? '';
     provincia = client.provincia ?? '';
@@ -46,7 +51,7 @@
     note = client.note ?? '';
     errors = {};
   } else if (open && !client) {
-    ragione_sociale = partita_iva = codice_sdi = pec = indirizzo = citta = provincia = cap = telefono = email = note = '';
+    ragione_sociale = partita_iva = codice_fiscale = codice_sdi = pec = referente = indirizzo = citta = provincia = cap = telefono = email = note = '';
     tipo = 'horeca';
     agente = '';
     errors = {};
@@ -69,8 +74,10 @@
         ragione_sociale: ragione_sociale.trim(),
         tipo,
         partita_iva: partita_iva.trim() || undefined,
+        codice_fiscale: codice_fiscale.trim() || undefined,
         codice_sdi: codice_sdi.trim() || undefined,
         pec: pec.trim() || undefined,
+        referente: referente.trim() || undefined,
         indirizzo: indirizzo.trim() || undefined,
         citta: citta.trim() || undefined,
         provincia: provincia.trim() || undefined,
@@ -86,11 +93,24 @@
         data.agente = $currentUser.id;
       }
 
+      const write = (payload: Record<string, unknown>) =>
+        client?.id
+          ? pb.collection('clients').update(client.id, payload)
+          : pb.collection('clients').create(payload);
+
       let saved: Client;
-      if (client?.id) {
-        saved = await pb.collection('clients').update(client.id, data) as Client;
-      } else {
-        saved = await pb.collection('clients').create(data) as Client;
+      try {
+        saved = (await write(data)) as Client;
+      } catch (err) {
+        const unknown = unknownFieldNames(err).filter((key) => data[key] !== undefined);
+        if (!unknown.length) throw err;
+        const retry = { ...data };
+        for (const key of unknown) delete retry[key];
+        saved = (await write(retry)) as Client;
+        errors.submit =
+          'Anagrafica salvata. Codice fiscale e referente saranno disponibili dopo la sincronizzazione dello schema.';
+        dispatch('saved', saved);
+        return;
       }
       dispatch('saved', saved);
       dispatch('close');
@@ -150,6 +170,11 @@
     </div>
 
     <Input id="pec" label="PEC" type="email" bind:value={pec} placeholder="pec@azienda.it" />
+
+    <div class="grid gap-5 sm:grid-cols-2">
+      <Input id="codice_fiscale" label="Codice fiscale" bind:value={codice_fiscale} placeholder="12345678901" />
+      <Input id="referente" label="Referente" bind:value={referente} placeholder="Nome e cognome" />
+    </div>
 
     <div class="space-y-1.5">
       <label for="indirizzo" class="block text-sm font-medium text-[#1A1A1A]">Indirizzo</label>

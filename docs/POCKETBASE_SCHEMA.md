@@ -19,6 +19,32 @@ Quando serve un nuovo campo/collection per l’ERP, si aggiunge la definizione n
 
 ---
 
+## Collection `crm_contatti` — CRM a monte dei clienti
+
+Prospect (ristoranti, contatti, agenti, distributori, sommelier, persone di spicco) prima che diventino clienti. Lo schema si applica con `npm run pb:sync` (idempotente). Le API rules si allineano con `npm run pb:rules`.
+
+| Campo | Tipo | Note |
+|-------|------|------|
+| nome | text | Persona o insegna |
+| ragione_sociale | text | Obbligatoria in app per ristorante e distributore |
+| tipo | select | `ristorante`, `contatto`, `agente`, `distributore`, `sommelier`, `persona_di_spicco` |
+| stato | select | `da_contattare`, `da_chiamare`, `contattato`, `in_trattativa`, `acquisito`, `non_interessato` |
+| partita_iva, codice_fiscale, codice_sdi, pec | text | Anagrafica e fatturazione elettronica |
+| indirizzo, citta, provincia, cap | text | |
+| telefono, email, referente | text | |
+| note | text | |
+| fonte | select | `fiera`, `referral`, `sito`, `telefono`, `visita`, `social`, `altro` |
+| fonte_dettaglio | text | Es. nome fiera o chi ha segnalato |
+| agente | relation → users | Proprietario, come su `clients` |
+| cliente | relation → clients | Compilato al passaggio in Acquisito, evita il duplicato |
+| organizzazioni | relation → self | Persone collegate a ristoranti o distributori |
+
+Su **Acquisito**, un ristorante diventa cliente `horeca`, un distributore diventa cliente `distributore`, un contatto diventa cliente `horeca`. Sommelier, agenti e persone di spicco creano il cliente solo se hanno una ragione sociale. I dati copiati includono anagrafica, SDI, PEC, indirizzo e contatti.
+
+Su `clients`, se mancano, lo sync aggiunge `codice_fiscale` e `referente`.
+
+---
+
 ## Collection `inventory` — soglia “sotto scorta”
 
 L’app (notifiche, badge magazzino, filtri) considera **sotto scorta** quando **`giacenza ≤ 6`** (soglia fissa nel codice, `SOGLIA_SOTTO_SCORTA`). Il campo **`giacenza_minima`** resta in anagrafica per riferimento / report ma **non** determina più l’alert globale.
@@ -350,7 +376,8 @@ Le regole sono applicate dallo script `scripts/apply-pocketbase-rules.mjs` (`npm
 | `orders` | create: admin, oppure agente su ordini propri **in stato `bozza`**. update: admin, oppure agente sulle proprie bozze (solo restando bozza o annullando). |
 | `order_items` | list/view: admin, magazziniere, agente solo per i propri ordini. create/update: admin, oppure agente su propria bozza. |
 | `invoices` | list/view: admin, agente solo per i propri ordini. |
-| `clients` | create: admin, oppure agente solo se assegna il cliente a sé. |
+| `clients` | create: admin, oppure agente solo se assegna il cliente a sé. Campi handoff opzionali: `codice_fiscale`, `referente`. |
+| `crm_contatti` | list/view/update/delete: admin, oppure agente solo sui propri (`agente = sé`). create: admin, oppure agente solo se assegna il prospect a sé. |
 | `activity_log` | list/view: admin o proprio log. create: solo con `utente` = utente loggato. |
 | `ai_chat_sessions` | ogni utente accede solo alle proprie sessioni. |
 

@@ -283,6 +283,170 @@ async function ensureRelation(pb, existingByName, collectionName, fieldDef) {
   existingByName.set(collectionName, updated);
 }
 
+const CRM_SCALAR_FIELDS = [
+  { name: 'nome', type: 'text', required: false },
+  { name: 'ragione_sociale', type: 'text', required: false },
+  {
+    name: 'tipo',
+    type: 'select',
+    required: true,
+    maxSelect: 1,
+    values: ['ristorante', 'contatto', 'agente', 'distributore', 'sommelier', 'persona_di_spicco']
+  },
+  {
+    name: 'stato',
+    type: 'select',
+    required: true,
+    maxSelect: 1,
+    values: ['da_contattare', 'da_chiamare', 'contattato', 'in_trattativa', 'acquisito', 'non_interessato']
+  },
+  { name: 'partita_iva', type: 'text', required: false },
+  { name: 'codice_fiscale', type: 'text', required: false },
+  { name: 'codice_sdi', type: 'text', required: false },
+  { name: 'pec', type: 'text', required: false },
+  { name: 'indirizzo', type: 'text', required: false },
+  { name: 'citta', type: 'text', required: false },
+  { name: 'provincia', type: 'text', required: false },
+  { name: 'cap', type: 'text', required: false },
+  { name: 'telefono', type: 'text', required: false },
+  { name: 'email', type: 'text', required: false },
+  { name: 'referente', type: 'text', required: false },
+  { name: 'note', type: 'text', required: false },
+  {
+    name: 'fonte',
+    type: 'select',
+    required: false,
+    maxSelect: 1,
+    values: ['fiera', 'referral', 'sito', 'telefono', 'visita', 'social', 'altro']
+  },
+  { name: 'fonte_dettaglio', type: 'text', required: false },
+  // Senza questi campi di sistema, sort=-created risponde 400.
+  { name: 'created', type: 'autodate', onCreate: true, onUpdate: false },
+  { name: 'updated', type: 'autodate', onCreate: true, onUpdate: true }
+];
+
+const CRM_LIST_RULE =
+  '@request.auth.id != "" && (@request.auth.ruolo = "admin" || (@request.auth.ruolo = "agente" && agente = @request.auth.id))';
+const CRM_CREATE_RULE =
+  '@request.auth.id != "" && (@request.auth.ruolo = "admin" || (@request.auth.ruolo = "agente" && @request.body.agente = @request.auth.id))';
+const CRM_UPDATE_RULE =
+  '@request.auth.id != "" && (@request.auth.ruolo = "admin" || (@request.auth.ruolo = "agente" && agente = @request.auth.id && (@request.body.agente:isset = false || @request.body.agente = @request.auth.id)))';
+
+const CRM_RULES = {
+  listRule: CRM_LIST_RULE,
+  viewRule: CRM_LIST_RULE,
+  createRule: CRM_CREATE_RULE,
+  updateRule: CRM_UPDATE_RULE,
+  deleteRule: CRM_LIST_RULE
+};
+
+function rulesNeedCrmLock(col) {
+  return ['listRule', 'viewRule', 'createRule', 'updateRule', 'deleteRule'].some((key) => {
+    const value = col?.[key];
+    return value == null || value === '' || value === AUTHED;
+  });
+}
+
+/** Campi anagrafici usati dal passaggio CRM → cliente. Non crea la collection se manca. */
+async function ensureClientHandoffFields(pb, existingByName) {
+  const col = existingByName.get('clients');
+  if (!col) {
+    console.log('SKIP    clients: collection assente, campi handoff non aggiunti');
+    return;
+  }
+  const extra = [
+    { name: 'codice_fiscale', type: 'text', required: false },
+    { name: 'referente', type: 'text', required: false }
+  ];
+  const missing = extra.filter((f) => !fieldExists(col.fields, f.name));
+  if (!missing.length) {
+    console.log('OK      clients (handoff)');
+    return;
+  }
+  console.log(`UPDATE  clients: + ${missing.map((f) => f.name).join(', ')}`);
+  if (DRY_RUN) return;
+  const updated = await pb.collections.update(col.id, {
+    fields: [...(col.fields || []), ...missing.map(newFieldPayload)]
+  });
+  existingByName.set('clients', updated);
+}
+
+/** Prospect a monte dei clienti. Regole come `clients`: admin, oppure agente sui propri record. */
+async function ensureCrmCollection(pb, existingByName) {
+  let col = existingByName.get('crm_contatti');
+  if (!col) {
+    console.log('CREATE collection crm_contatti');
+    if (DRY_RUN) return;
+    // Regole temporanee: quelle definitive citano `agente`, che esiste solo dopo la relation.
+    col = await pb.collections.create({
+      name: 'crm_contatti',
+      type: 'base',
+      listRule: AUTHED,
+      viewRule: AUTHED,
+      createRule: AUTHED,
+      updateRule: AUTHED,
+      deleteRule: AUTHED,
+      fields: CRM_SCALAR_FIELDS.map(newFieldPayload)
+    });
+    existingByName.set('crm_contatti', col);
+  } else {
+    const missing = CRM_SCALAR_FIELDS.filter((f) => !fieldExists(col.fields, f.name));
+    if (missing.length) {
+      console.log(`UPDATE  crm_contatti: + ${missing.map((f) => f.name).join(', ')}`);
+      if (!DRY_RUN) {
+        col = await pb.collections.update(col.id, {
+          fields: [...(col.fields || []), ...missing.map(newFieldPayload)]
+        });
+        existingByName.set('crm_contatti', col);
+      }
+    } else {
+      console.log('OK      crm_contatti');
+    }
+  }
+
+  if (DRY_RUN || !col) return;
+
+  const clients = existingByName.get('clients');
+  await ensureRelation(pb, existingByName, 'crm_contatti', {
+    name: 'agente',
+    type: 'relation',
+    required: false,
+    collectionId: '_pb_users_auth_',
+    maxSelect: 1,
+    cascadeDelete: false
+  });
+  if (clients) {
+    await ensureRelation(pb, existingByName, 'crm_contatti', {
+      name: 'cliente',
+      type: 'relation',
+      required: false,
+      collectionId: clients.id,
+      maxSelect: 1,
+      cascadeDelete: false
+    });
+  } else {
+    console.warn('SKIP    crm_contatti.cliente: collection clients assente');
+  }
+  const crm = existingByName.get('crm_contatti');
+  if (crm) {
+    await ensureRelation(pb, existingByName, 'crm_contatti', {
+      name: 'organizzazioni',
+      type: 'relation',
+      required: false,
+      collectionId: crm.id,
+      maxSelect: 8,
+      cascadeDelete: false
+    });
+  }
+
+  const fresh = existingByName.get('crm_contatti');
+  if (fresh && rulesNeedCrmLock(fresh)) {
+    console.log('RULES   crm_contatti');
+    const updated = await pb.collections.update(fresh.id, CRM_RULES);
+    existingByName.set('crm_contatti', updated);
+  }
+}
+
 async function main() {
   const pb = new PocketBase(PB_URL);
   pb.autoCancellation(false);
@@ -297,6 +461,9 @@ async function main() {
   for (const def of SCHEMA) {
     await ensureCollection(pb, def, existingByName);
   }
+
+  await ensureClientHandoffFields(pb, existingByName);
+  await ensureCrmCollection(pb, existingByName);
 
   // Relazioni che dipendono da ID collection già create
   const tasks = existingByName.get('admin_tasks');

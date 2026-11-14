@@ -123,6 +123,17 @@ const RULES = {
     deleteRule: null
   },
 
+  // Stesse regole dei clienti: l'agente vede e modifica solo i prospect assegnati a sé.
+  crm_contatti: {
+    listRule: `@request.auth.id != "" && (${ADMIN} || (${AGENTE} && agente = ${ME}))`,
+    viewRule: `@request.auth.id != "" && (${ADMIN} || (${AGENTE} && agente = ${ME}))`,
+    createRule: `@request.auth.id != "" && (${ADMIN} || (${AGENTE} && @request.body.agente = ${ME}))`,
+    updateRule:
+      `@request.auth.id != "" && (${ADMIN} || (${AGENTE} && agente = ${ME} && ` +
+      `(@request.body.agente:isset = false || @request.body.agente = ${ME})))`,
+    deleteRule: `@request.auth.id != "" && (${ADMIN} || (${AGENTE} && agente = ${ME}))`
+  },
+
   // Un agente può creare clienti solo assegnati a sé e non può "regalarli" ad altri agenti.
   clients: {
     createRule: `${ADMIN} || (${AGENTE} && @request.body.agente = ${ME})`,

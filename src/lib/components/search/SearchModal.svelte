@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { tick, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  import { Search, Package, Users, ShoppingCart, FileText, Boxes, X, Loader2, CornerDownLeft, Sparkles } from 'lucide-svelte';
+  import { Search, Package, Users, ShoppingCart, FileText, Boxes, Contact, X, Loader2, CornerDownLeft, Sparkles } from 'lucide-svelte';
   import type { SearchResult, SearchResultType, AIFilterResponse } from '$lib/utils/search';
   import { searchPocketBase, interpretWithAI } from '$lib/utils/search';
   import { settingsStore } from '$lib/stores/settings';
@@ -21,18 +21,19 @@
   let lockedScroll = false;
 
   const TYPE_CONFIG: Record<SearchResultType, { label: string; icon: typeof Package }> = {
+    crm: { label: 'CRM', icon: Contact },
     clients: { label: 'Clienti', icon: Users },
     orders: { label: 'Ordini', icon: ShoppingCart },
     products: { label: 'Prodotti', icon: Package },
     invoices: { label: 'Fatture', icon: FileText },
     inventory: { label: 'Magazzino', icon: Boxes }
   };
-  const TYPE_ORDER: SearchResultType[] = ['clients', 'orders', 'products', 'invoices', 'inventory'];
+  const TYPE_ORDER: SearchResultType[] = ['crm', 'clients', 'orders', 'products', 'invoices', 'inventory'];
 
   /** Ogni ruolo cerca solo dove ha accesso (le pagine di destinazione sono protette per ruolo). */
   $: allowedTypes = ((): SearchResultType[] => {
-    if ($currentRole === 'admin') return ['products', 'clients', 'orders', 'invoices', 'inventory'];
-    if ($currentRole === 'agente') return ['clients', 'orders'];
+    if ($currentRole === 'admin') return ['crm', 'products', 'clients', 'orders', 'invoices', 'inventory'];
+    if ($currentRole === 'agente') return ['crm', 'clients', 'orders'];
     if ($currentRole === 'magazziniere') return ['inventory'];
     return [];
   })();

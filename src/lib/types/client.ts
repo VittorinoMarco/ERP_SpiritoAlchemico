@@ -6,8 +6,10 @@ export interface Client extends RecordModel {
   ragione_sociale: string;
   tipo: ClientTipo;
   partita_iva?: string;
+  codice_fiscale?: string;
   codice_sdi?: string;
   pec?: string;
+  referente?: string;
   indirizzo?: string;
   citta?: string;
   provincia?: string;
