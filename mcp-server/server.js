@@ -52,6 +52,8 @@ const INSTRUCTIONS = [
   'Una vendita senza fattura è un ordine con con_fattura false. Non creare proforma né fattura per quell’ordine. La provvigione matura alla consegna.',
   'Una vendita con fattura (con_fattura true, il default) segue proforma e poi fattura. La provvigione matura solo quando la fattura è pagata.',
   'con_fattura si cambia solo mentre l’ordine è in bozza.',
+  'Il CRM è la collection crm_contatti. tipo: ristorante, contatto, agente, distributore, sommelier, persona_di_spicco. stato: da_contattare, da_chiamare, contattato, in_trattativa, acquisito, non_interessato. Ristorante e distributore richiedono ragione_sociale.',
+  'Per acquisire un prospect imposta stato acquisito su crm_contatti. Il connettore crea il cliente una sola volta e compila il campo cliente: ristorante e contatto diventano horeca, il distributore resta distributore. Sommelier, agente e persona di spicco diventano cliente solo se hanno una ragione sociale. Non creare il cliente a mano.',
   'Per eliminare un record passa confirm esattamente DELETE.',
   'I filtri usano la sintassi PocketBase, per esempio ragione_sociale ~ "Bar".',
   'Non inventare id: leggili prima con list_records o get_record.',
@@ -282,7 +284,8 @@ const tools = [
   },
   {
     name: 'update_record',
-    description: 'Aggiorna i campi indicati di un record esistente. Gli altri campi restano.',
+    description:
+      'Aggiorna i campi indicati di un record esistente. Gli altri campi restano. Su crm_contatti, stato acquisito crea o collega il cliente.',
     readOnly: false,
     inputSchema: {
       type: 'object',
@@ -342,6 +345,162 @@ async function createUser(input) {
   return { id: row.id, email: row.email, nome: row.nome, cognome: row.cognome, ruolo: row.ruolo, password };
 }
 
+const CRM_TIPI = new Set(['ristorante', 'contatto', 'agente', 'distributore', 'sommelier', 'persona_di_spicco']);
+const CRM_STATI = new Set(['da_contattare', 'da_chiamare', 'contattato', 'in_trattativa', 'acquisito', 'non_interessato']);
+const CRM_FONTI = new Set(['fiera', 'referral', 'sito', 'telefono', 'visita', 'social', 'altro']);
+const CRM_ORG = new Set(['ristorante', 'distributore']);
+const CRM_PERSON = new Set(['sommelier', 'agente', 'persona_di_spicco']);
+const CRM_FONTE = {
+  fiera: 'Fiera',
+  referral: 'Referral',
+  sito: 'Sito',
+  telefono: 'Telefono',
+  visita: 'Visita',
+  social: 'Social',
+  altro: 'Altro'
+};
+
+function crmText(value) {
+  return String(value ?? '').trim();
+}
+function crmBlank(value) {
+  const trimmed = crmText(value);
+  return trimmed || undefined;
+}
+function crmCompact(value) {
+  return crmText(value).replace(/\s+/g, '').toUpperCase();
+}
+
+function crmClientTipo(record) {
+  if (record.tipo === 'ristorante' || record.tipo === 'contatto') return 'horeca';
+  if (record.tipo === 'distributore') return 'distributore';
+  if (CRM_PERSON.has(record.tipo) && crmText(record.ragione_sociale)) return 'horeca';
+  return null;
+}
+
+function prepareCrmWrite(data, current) {
+  const merged = { ...(current || {}), ...data };
+  if (data.tipo != null && !CRM_TIPI.has(data.tipo)) {
+    throw new Error('tipo non valido. Usa ristorante, contatto, agente, distributore, sommelier o persona_di_spicco');
+  }
+  if (!current && !CRM_TIPI.has(merged.tipo)) {
+    throw new Error('Sul CRM il tipo è obbligatorio');
+  }
+  if (data.stato != null && !CRM_STATI.has(data.stato)) {
+    throw new Error('stato non valido. Usa da_contattare, da_chiamare, contattato, in_trattativa, acquisito o non_interessato');
+  }
+  if (data.fonte != null && data.fonte !== '' && !CRM_FONTI.has(data.fonte)) {
+    throw new Error('fonte non valida');
+  }
+  const touchesIdentity = !current || 'nome' in data || 'ragione_sociale' in data || 'tipo' in data;
+  if (touchesIdentity) {
+    const nome = crmText(merged.nome);
+    const company = crmText(merged.ragione_sociale);
+    if (CRM_ORG.has(merged.tipo) && !company) throw new Error('Ragione sociale obbligatoria per ristorante e distributore');
+    if (merged.tipo === 'contatto' && !nome && !company) throw new Error('Indica almeno il nome o la ragione sociale');
+    if (CRM_PERSON.has(merged.tipo) && !nome) throw new Error('Nome obbligatorio');
+  }
+  if ('email' in data && crmText(data.email) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(crmText(data.email))) {
+    throw new Error('Email non valida');
+  }
+  if ('pec' in data && crmText(data.pec) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(crmText(data.pec))) {
+    throw new Error('PEC non valida');
+  }
+  if ('partita_iva' in data) {
+    data.partita_iva = crmCompact(data.partita_iva);
+    if (data.partita_iva && !/^(IT)?\d{11}$/.test(data.partita_iva)) throw new Error('Partita IVA non valida');
+  }
+  if ('codice_fiscale' in data) {
+    data.codice_fiscale = crmCompact(data.codice_fiscale);
+    if (data.codice_fiscale && !/^(\d{11}|[A-Z0-9]{16})$/.test(data.codice_fiscale)) throw new Error('Codice fiscale non valido');
+  }
+  if ('codice_sdi' in data) {
+    data.codice_sdi = crmCompact(data.codice_sdi);
+    if (data.codice_sdi && !/^[A-Z0-9]{7}$/.test(data.codice_sdi)) throw new Error('Il codice SDI ha 7 caratteri');
+  }
+  if ('cap' in data && crmText(data.cap) && !/^\d{5}$/.test(crmText(data.cap))) throw new Error('CAP non valido');
+  if ('provincia' in data) {
+    data.provincia = crmText(data.provincia).toUpperCase();
+    if (data.provincia && !/^[A-Z]{2}$/.test(data.provincia)) throw new Error('Usa la sigla della provincia, per esempio MI');
+  }
+}
+
+function crmClientePayload(record) {
+  const ragione = crmText(record.ragione_sociale) || crmText(record.nome);
+  const tipo = crmClientTipo(record);
+  if (!ragione || !tipo) throw new Error('Questo contatto non ha i dati per diventare un cliente');
+  const noteParts = [];
+  if (crmText(record.note)) noteParts.push(crmText(record.note));
+  if (record.fonte && CRM_FONTE[record.fonte]) {
+    const detail = crmText(record.fonte_dettaglio);
+    noteParts.push(`Fonte CRM: ${CRM_FONTE[record.fonte]}${detail ? ` — ${detail}` : ''}`);
+  }
+  const nome = crmText(record.nome);
+  const data = {
+    ragione_sociale: ragione,
+    tipo,
+    partita_iva: crmBlank(crmCompact(record.partita_iva)),
+    codice_fiscale: crmBlank(crmCompact(record.codice_fiscale)),
+    codice_sdi: crmBlank(crmCompact(record.codice_sdi)),
+    pec: crmBlank(record.pec),
+    indirizzo: crmBlank(record.indirizzo),
+    citta: crmBlank(record.citta),
+    provincia: crmBlank(record.provincia)?.toUpperCase(),
+    cap: crmBlank(record.cap),
+    telefono: crmBlank(record.telefono),
+    email: crmBlank(record.email),
+    referente: crmBlank(record.referente) || (nome && nome !== ragione ? nome : undefined),
+    note: noteParts.length ? noteParts.join('\n\n') : undefined,
+    agente: record.agente || undefined
+  };
+  for (const key of Object.keys(data)) if (data[key] === undefined) delete data[key];
+  return data;
+}
+
+async function findClientByPiva(piva) {
+  if (!piva) return null;
+  try {
+    return await withPb(() => pb.collection('clients').getFirstListItem(`partita_iva = "${piva}"`));
+  } catch (err) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+}
+
+/** Stesso passaggio della pagina CRM: Acquisito crea o collega un solo cliente. */
+async function acquireCrm(id) {
+  const fresh = await withPb(() => pb.collection('crm_contatti').getOne(id));
+  const mapping = crmClientTipo(fresh);
+  if (!mapping) {
+    const record = await withPb(() => pb.collection('crm_contatti').update(id, { stato: 'acquisito' }));
+    return { contatto: record, clienteId: null, clienteCreato: false, clienteGiaEsistente: false, soloPersona: true };
+  }
+  if (fresh.cliente) {
+    try {
+      const existing = await withPb(() => pb.collection('clients').getOne(fresh.cliente));
+      const record = await withPb(() =>
+        pb.collection('crm_contatti').update(id, { stato: 'acquisito', cliente: existing.id })
+      );
+      return { contatto: record, clienteId: existing.id, clienteCreato: false, clienteGiaEsistente: true, soloPersona: false };
+    } catch (err) {
+      if (err?.status !== 404) throw err;
+    }
+  }
+  const piva = crmCompact(fresh.partita_iva);
+  const byPiva = await findClientByPiva(piva);
+  if (byPiva) {
+    const record = await withPb(() =>
+      pb.collection('crm_contatti').update(id, { stato: 'acquisito', cliente: byPiva.id })
+    );
+    return { contatto: record, clienteId: byPiva.id, clienteCreato: false, clienteGiaEsistente: true, soloPersona: false };
+  }
+  const created = await withPb(() => pb.collection('clients').create(crmClientePayload(fresh)));
+  const record = await withPb(() =>
+    pb.collection('crm_contatti').update(id, { stato: 'acquisito', cliente: created.id })
+  );
+  return { contatto: record, clienteId: created.id, clienteCreato: true, clienteGiaEsistente: false, soloPersona: false };
+}
+
 async function assertFatturaConsentita(data) {
   if (!data?.ordine) return;
   const order = await withPb(() => pb.collection('orders').getOne(String(data.ordine)));
@@ -384,6 +543,15 @@ async function callTool(name, args) {
       if (a.collection === 'users') return ok(await createUser(a.data));
       if (a.collection === 'orders' && a.data.con_fattura == null) a.data.con_fattura = true;
       if (a.collection === 'invoices') await assertFatturaConsentita(a.data);
+      if (a.collection === 'crm_contatti') {
+        if (a.data.stato == null) a.data.stato = 'da_contattare';
+        prepareCrmWrite(a.data, null);
+        const acquire = a.data.stato === 'acquisito';
+        if (acquire) a.data.stato = 'da_contattare';
+        const row = await withPb(() => pb.collection(a.collection).create(a.data));
+        if (acquire) return ok(await acquireCrm(row.id));
+        return ok(row);
+      }
       const row = await withPb(() => pb.collection(a.collection).create(a.data));
       return ok(row);
     }
@@ -398,6 +566,21 @@ async function callTool(name, args) {
         }
       }
       if (a.collection === 'invoices' && a.data.ordine) await assertFatturaConsentita(a.data);
+      if (a.collection === 'crm_contatti') {
+        const current = await withPb(() => pb.collection('crm_contatti').getOne(a.id));
+        prepareCrmWrite(a.data, current);
+        const acquire = a.data.stato === 'acquisito';
+        if (acquire) {
+          delete a.data.stato;
+          delete a.data.cliente;
+        }
+        if (Object.keys(a.data).length) {
+          await withPb(() => pb.collection('crm_contatti').update(a.id, a.data));
+        }
+        if (acquire) return ok(await acquireCrm(a.id));
+        const row = await withPb(() => pb.collection('crm_contatti').getOne(a.id));
+        return ok(row);
+      }
       const row = await withPb(() => pb.collection(a.collection).update(a.id, a.data));
       return ok(row);
     }
